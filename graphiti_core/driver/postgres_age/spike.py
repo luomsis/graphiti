@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, cast
 
 from pgvector.psycopg import register_vector_async
-from psycopg import AsyncConnection, sql
+from psycopg import AsyncConnection, AsyncCursor, sql
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 from typing_extensions import LiteralString
 
@@ -157,6 +158,83 @@ class PostgresAgeSpike:
             rows = await cur.fetchall()
             return [dict(row) for row in rows]
 
+    async def clear(self) -> None:
+        async with self.connection() as conn:
+            try:
+                async with conn.cursor() as cur:
+                    await cur.execute('DELETE FROM public.spike_entity_edges')
+                    await cur.execute('DELETE FROM public.spike_entity_nodes')
+                    await self._execute_trusted_cypher(cur, 'MATCH (n) DETACH DELETE n')
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+
+    async def save_entity_node(
+        self,
+        uuid: str,
+        group_id: str,
+        name: str,
+        summary: str,
+        labels: Sequence[str],
+        attributes: dict[str, Any],
+        embedding: Sequence[float] | None,
+    ) -> None:
+        labels_list = list(labels)
+        async with self.connection() as conn:
+            try:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO public.spike_entity_nodes (
+                            uuid,
+                            group_id,
+                            name,
+                            summary,
+                            labels,
+                            attributes,
+                            name_embedding
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (uuid) DO UPDATE SET
+                            group_id = EXCLUDED.group_id,
+                            name = EXCLUDED.name,
+                            summary = EXCLUDED.summary,
+                            labels = EXCLUDED.labels,
+                            attributes = EXCLUDED.attributes,
+                            name_embedding = EXCLUDED.name_embedding
+                        """,
+                        (
+                            uuid,
+                            group_id,
+                            name,
+                            summary,
+                            labels_list,
+                            Jsonb(attributes),
+                            list(embedding) if embedding is not None else None,
+                        ),
+                    )
+                    await self._merge_entity_projection(cur, uuid, group_id, name, labels_list)
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+
+    async def get_entity_node(self, uuid: str) -> dict[str, Any]:
+        async with self.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                SELECT uuid, group_id, name, summary, labels, attributes
+                FROM public.spike_entity_nodes
+                WHERE uuid = %s
+                """,
+                (uuid,),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                raise KeyError(uuid)
+            return dict(row)
+
     async def execute_cypher(self, cypher_query: str, columns: str) -> list[dict]:
         """Execute trusted spike Cypher with conservative SQL breakout checks.
 
@@ -170,8 +248,33 @@ class PostgresAgeSpike:
         if _CYPHER_COLUMNS_RE.fullmatch(columns) is None:
             raise ValueError('columns must be comma-separated <identifier> agtype definitions')
 
+        async with self.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await self._execute_trusted_cypher(cur, cypher_query, columns)
+            rows = await cur.fetchall()
+            return [dict(row) for row in rows]
+
+    async def _merge_entity_projection(
+        self,
+        cur: AsyncCursor[Any],
+        uuid: str,
+        group_id: str,
+        name: str,
+        labels: Sequence[str],
+    ) -> None:
+        cypher_query = f"""
+        MERGE (n:Entity {{uuid: {json.dumps(uuid)}}})
+        SET n.group_id = {json.dumps(group_id)},
+            n.name = {json.dumps(name)},
+            n.node_kind = 'Entity',
+            n.labels = {json.dumps(list(labels))}
+        """
+        await self._execute_trusted_cypher(cur, cypher_query)
+
+    async def _execute_trusted_cypher(
+        self, cur: AsyncCursor[Any], cypher_query: str, columns: str = 'value agtype'
+    ) -> None:
         # psycopg's SQL composer is typed for literal strings; these runtime strings are
-        # accepted only after the trusted-spike validation above.
+        # accepted only after callers build trusted spike Cypher internally or validate inputs.
         cypher_sql = cast(LiteralString, cypher_query)
         columns_sql = cast(LiteralString, columns)
         query = sql.SQL('SELECT * FROM cypher({}, $$ {} $$) AS ({})').format(
@@ -179,10 +282,7 @@ class PostgresAgeSpike:
             sql.SQL(cypher_sql),
             sql.SQL(columns_sql),
         )
-        async with self.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(query)
-            rows = await cur.fetchall()
-            return [dict(row) for row in rows]
+        await cur.execute(query)
 
     @staticmethod
     def decode_agtype_scalar(value: Any) -> Any:

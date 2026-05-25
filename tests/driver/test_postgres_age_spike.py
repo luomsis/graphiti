@@ -100,3 +100,44 @@ async def test_bootstrap_creates_extensions_schema_and_graph():
     assert extensions == {'age', 'pg_trgm', 'vector'}
     assert tables == {'spike_entity_edges', 'spike_entity_nodes'}
     assert graph_name == (helper.graph_name,)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_save_and_load_entity_node_from_canonical_table():
+    helper = PostgresAgeSpike(dsn=DSN, graph_name=f'graphiti_spike_{uuid4().hex}')
+    await helper.open()
+    try:
+        await _drop_spike_objects(helper)
+        await helper.bootstrap()
+        await helper.clear()
+
+        await helper.save_entity_node(
+            uuid='alice',
+            group_id='main',
+            name='Alice',
+            summary='Alice likes graph databases',
+            labels=['Person'],
+            attributes={'role': 'engineer'},
+            embedding=[0.1, 0.2, 0.3],
+        )
+
+        node = await helper.get_entity_node('alice')
+        projection_rows = await helper.execute_cypher(
+            """
+            MATCH (n:Entity {uuid: 'alice'})
+            RETURN n.uuid
+            """,
+            'uuid agtype',
+        )
+    finally:
+        try:
+            await _drop_spike_objects(helper)
+        finally:
+            await helper.close()
+
+    assert node['uuid'] == 'alice'
+    assert node['name'] == 'Alice'
+    assert node['labels'] == ['Person']
+    assert node['attributes'] == {'role': 'engineer'}
+    assert [helper.decode_agtype_scalar(row['uuid']) for row in projection_rows] == ['alice']
