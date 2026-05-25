@@ -42,6 +42,105 @@ class PostgresAgeSpike:
             await self._setup_age_session(conn)
             yield conn
 
+    async def bootstrap(self) -> None:
+        if self.pool is None:
+            raise RuntimeError('PostgresAgeSpike.open() must be called before use')
+
+        async with self.pool.connection() as conn:
+            try:
+                async with conn.cursor() as cur:
+                    await cur.execute('CREATE EXTENSION IF NOT EXISTS age')
+                    await cur.execute('CREATE EXTENSION IF NOT EXISTS vector')
+                    await cur.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+
+                    await cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS public.spike_entity_nodes (
+                            uuid text PRIMARY KEY,
+                            group_id text NOT NULL,
+                            name text NOT NULL,
+                            summary text NOT NULL,
+                            labels text[] NOT NULL DEFAULT '{}',
+                            attributes jsonb NOT NULL DEFAULT '{}',
+                            name_embedding vector(3),
+                            created_at timestamptz NOT NULL DEFAULT now(),
+                            search_vector tsvector GENERATED ALWAYS AS (
+                                setweight(to_tsvector('english', name), 'A')
+                                || setweight(to_tsvector('english', summary), 'B')
+                            ) STORED
+                        )
+                        """
+                    )
+                    await cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS public.spike_entity_edges (
+                            uuid text PRIMARY KEY,
+                            group_id text NOT NULL,
+                            source_node_uuid text NOT NULL
+                                REFERENCES public.spike_entity_nodes(uuid) ON DELETE CASCADE,
+                            target_node_uuid text NOT NULL
+                                REFERENCES public.spike_entity_nodes(uuid) ON DELETE CASCADE,
+                            name text NOT NULL,
+                            fact text NOT NULL,
+                            fact_embedding vector(3),
+                            created_at timestamptz NOT NULL DEFAULT now(),
+                            search_vector tsvector GENERATED ALWAYS AS (
+                                setweight(to_tsvector('english', name), 'A')
+                                || setweight(to_tsvector('english', fact), 'B')
+                            ) STORED
+                        )
+                        """
+                    )
+                    await cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS spike_entity_nodes_group_id_idx
+                        ON public.spike_entity_nodes (group_id)
+                        """
+                    )
+                    await cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS spike_entity_edges_group_id_idx
+                        ON public.spike_entity_edges (group_id)
+                        """
+                    )
+                    await cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS spike_entity_nodes_search_vector_idx
+                        ON public.spike_entity_nodes USING gin (search_vector)
+                        """
+                    )
+                    await cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS spike_entity_edges_search_vector_idx
+                        ON public.spike_entity_edges USING gin (search_vector)
+                        """
+                    )
+                    await cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS spike_entity_nodes_name_embedding_hnsw_idx
+                        ON public.spike_entity_nodes USING hnsw (name_embedding vector_cosine_ops)
+                        """
+                    )
+                    await cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS spike_entity_edges_fact_embedding_hnsw_idx
+                        ON public.spike_entity_edges USING hnsw (fact_embedding vector_cosine_ops)
+                        """
+                    )
+
+                    await cur.execute("LOAD 'age'")
+                    await cur.execute('SET search_path = ag_catalog, "$user", public')
+                    await cur.execute(
+                        'SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s',
+                        (self.graph_name,),
+                    )
+                    if await cur.fetchone() is None:
+                        await cur.execute('SELECT create_graph(%s)', (self.graph_name,))
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+
     async def _setup_age_session(self, conn: AsyncConnection) -> None:
         await register_vector_async(conn)
         async with conn.cursor() as cur:
