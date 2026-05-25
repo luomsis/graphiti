@@ -307,6 +307,43 @@ class PostgresAgeSpike:
                 raise KeyError(uuid)
             return dict(row)
 
+    async def vector_search_entity_uuids(
+        self, embedding: Sequence[float], limit: int
+    ) -> list[str]:
+        self._validate_search_limit(limit)
+
+        async with self.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                SELECT uuid
+                FROM public.spike_entity_nodes
+                WHERE name_embedding IS NOT NULL
+                ORDER BY name_embedding <=> %(embedding)s::vector
+                LIMIT %(limit)s
+                """,
+                {'embedding': list(embedding), 'limit': limit},
+            )
+            rows = await cur.fetchall()
+            return [str(row['uuid']) for row in rows]
+
+    async def fulltext_search_entity_uuids(self, query: str, limit: int) -> list[str]:
+        self._validate_search_limit(limit)
+
+        async with self.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                SELECT uuid
+                FROM public.spike_entity_nodes
+                WHERE search_vector @@ websearch_to_tsquery('simple', %(query)s)
+                ORDER BY ts_rank(search_vector, websearch_to_tsquery('simple', %(query)s)) DESC,
+                    uuid
+                LIMIT %(limit)s
+                """,
+                {'query': query, 'limit': limit},
+            )
+            rows = await cur.fetchall()
+            return [str(row['uuid']) for row in rows]
+
     async def bfs_entity_uuids(self, origin_uuid: str, max_depth: int = 1) -> list[str]:
         if type(max_depth) is not int or not 1 <= max_depth <= _MAX_BFS_DEPTH:
             raise ValueError(f'max_depth must be between 1 and {_MAX_BFS_DEPTH}')
@@ -317,6 +354,11 @@ class PostgresAgeSpike:
         """
         rows = await self.execute_cypher(cypher_query, 'uuid agtype')
         return sorted(str(self.decode_agtype_scalar(row['uuid'])) for row in rows)
+
+    @staticmethod
+    def _validate_search_limit(limit: int) -> None:
+        if type(limit) is not int or limit < 1:
+            raise ValueError('limit must be a positive integer')
 
     async def execute_cypher(self, cypher_query: str, columns: str) -> list[dict]:
         """Execute trusted spike Cypher with conservative SQL breakout checks.

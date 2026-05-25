@@ -49,6 +49,17 @@ async def test_bfs_rejects_unbounded_depth_before_connecting():
         await helper.bfs_entity_uuids('alice', max_depth=6)
 
 
+@pytest.mark.asyncio
+async def test_search_rejects_non_positive_limit_before_connecting():
+    helper = PostgresAgeSpike(dsn=DSN)
+
+    with pytest.raises(ValueError, match='positive integer'):
+        await helper.vector_search_entity_uuids([0.1, 0.2, 0.3], limit=0)
+
+    with pytest.raises(ValueError, match='positive integer'):
+        await helper.fulltext_search_entity_uuids('graph database', limit=0)
+
+
 async def _drop_spike_objects(helper: PostgresAgeSpike) -> None:
     if helper.pool is None:
         raise RuntimeError('helper must be open before cleanup')
@@ -63,6 +74,21 @@ async def _drop_spike_objects(helper: PostgresAgeSpike) -> None:
                 await cur.execute('SELECT drop_graph(%s, true)', (helper.graph_name,))
             await cur.execute('DROP TABLE IF EXISTS public.spike_entity_edges')
             await cur.execute('DROP TABLE IF EXISTS public.spike_entity_nodes')
+        await conn.commit()
+
+
+async def _drop_age_graph(helper: PostgresAgeSpike) -> None:
+    if helper.pool is None:
+        raise RuntimeError('helper must be open before graph cleanup')
+
+    async with helper.pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute('CREATE EXTENSION IF NOT EXISTS age')
+            await cur.execute("LOAD 'age'")
+            await cur.execute('SET search_path = ag_catalog, "$user", public')
+            await cur.execute('SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s', (helper.graph_name,))
+            if await cur.fetchone() is not None:
+                await cur.execute('SELECT drop_graph(%s, true)', (helper.graph_name,))
         await conn.commit()
 
 
@@ -249,3 +275,50 @@ async def test_save_entity_edge_and_bfs_through_age_projection():
     assert updated_edge['source_node_uuid'] == 'alice'
     assert updated_edge['target_node_uuid'] == 'carol'
     assert updated_bfs_result == ['carol']
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_vector_and_fulltext_search_use_canonical_tables():
+    helper = PostgresAgeSpike(dsn=DSN, graph_name=f'graphiti_spike_{uuid4().hex}')
+    await helper.open()
+    try:
+        async with _spike_database_lock(helper):
+            await _drop_spike_objects(helper)
+            try:
+                await helper.bootstrap()
+                await helper.clear()
+
+                await helper.save_entity_node(
+                    uuid='alice',
+                    group_id='main',
+                    name='Alice',
+                    summary='Graph database expert',
+                    labels=['Person'],
+                    attributes={'role': 'engineer'},
+                    embedding=[0.1, 0.2, 0.3],
+                )
+                await helper.save_entity_node(
+                    uuid='charlie',
+                    group_id='main',
+                    name='Charlie',
+                    summary='Unrelated baker',
+                    labels=['Person'],
+                    attributes={'role': 'baker'},
+                    embedding=[0.9, 0.1, 0.1],
+                )
+                await _drop_age_graph(helper)
+
+                vector_result = await helper.vector_search_entity_uuids(
+                    [0.1, 0.2, 0.3], limit=1
+                )
+                fulltext_result = await helper.fulltext_search_entity_uuids(
+                    'graph database', limit=2
+                )
+            finally:
+                await _drop_spike_objects(helper)
+    finally:
+        await helper.close()
+
+    assert vector_result == ['alice']
+    assert fulltext_result == ['alice']
