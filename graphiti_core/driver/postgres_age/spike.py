@@ -65,8 +65,8 @@ class PostgresAgeSpike:
                             name_embedding vector(3),
                             created_at timestamptz NOT NULL DEFAULT now(),
                             search_vector tsvector GENERATED ALWAYS AS (
-                                setweight(to_tsvector('english', name), 'A')
-                                || setweight(to_tsvector('english', summary), 'B')
+                                setweight(to_tsvector('simple', name), 'A')
+                                || setweight(to_tsvector('simple', summary), 'B')
                             ) STORED
                         )
                         """
@@ -85,8 +85,8 @@ class PostgresAgeSpike:
                             fact_embedding vector(3),
                             created_at timestamptz NOT NULL DEFAULT now(),
                             search_vector tsvector GENERATED ALWAYS AS (
-                                setweight(to_tsvector('english', name), 'A')
-                                || setweight(to_tsvector('english', fact), 'B')
+                                setweight(to_tsvector('simple', name), 'A')
+                                || setweight(to_tsvector('simple', fact), 'B')
                             ) STORED
                         )
                         """

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 
 from graphiti_core.driver.postgres_age.spike import PostgresAgeSpike
@@ -36,11 +38,30 @@ async def test_execute_cypher_rejects_non_agtype_columns_before_connecting():
         await helper.execute_cypher('RETURN 1', 'uuid text')
 
 
+async def _drop_spike_objects(helper: PostgresAgeSpike) -> None:
+    if helper.pool is None:
+        raise RuntimeError('helper must be open before cleanup')
+
+    async with helper.pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute('CREATE EXTENSION IF NOT EXISTS age')
+            await cur.execute("LOAD 'age'")
+            await cur.execute('SET search_path = ag_catalog, "$user", public')
+            await cur.execute('SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s', (helper.graph_name,))
+            if await cur.fetchone() is not None:
+                await cur.execute('SELECT drop_graph(%s, true)', (helper.graph_name,))
+            await cur.execute('DROP TABLE IF EXISTS public.spike_entity_edges')
+            await cur.execute('DROP TABLE IF EXISTS public.spike_entity_nodes')
+        await conn.commit()
+
+
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_bootstrap_creates_extensions_schema_and_graph():
-    helper = PostgresAgeSpike(dsn=DSN)
+    helper = PostgresAgeSpike(dsn=DSN, graph_name=f'graphiti_spike_{uuid4().hex}')
     await helper.open()
     try:
+        await _drop_spike_objects(helper)
         await helper.bootstrap()
 
         async with helper.connection() as conn, conn.cursor() as cur:
@@ -71,7 +92,10 @@ async def test_bootstrap_creates_extensions_schema_and_graph():
             )
             graph_name = await cur.fetchone()
     finally:
-        await helper.close()
+        try:
+            await _drop_spike_objects(helper)
+        finally:
+            await helper.close()
 
     assert extensions == {'age', 'pg_trgm', 'vector'}
     assert tables == {'spike_entity_edges', 'spike_entity_nodes'}
