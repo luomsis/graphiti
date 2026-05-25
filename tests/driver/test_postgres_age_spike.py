@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import pytest
@@ -5,6 +7,7 @@ import pytest
 from graphiti_core.driver.postgres_age.spike import PostgresAgeSpike
 
 DSN = 'postgresql://graphiti:graphiti@localhost:55432/graphiti'
+SPIKE_TEST_LOCK = 'graphiti_postgres_age_spike_tests'
 
 
 @pytest.mark.asyncio
@@ -55,47 +58,64 @@ async def _drop_spike_objects(helper: PostgresAgeSpike) -> None:
         await conn.commit()
 
 
+@asynccontextmanager
+async def _spike_database_lock(helper: PostgresAgeSpike) -> AsyncIterator[None]:
+    if helper.pool is None:
+        raise RuntimeError('helper must be open before acquiring lock')
+
+    async with helper.pool.connection() as conn:
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (SPIKE_TEST_LOCK,))
+            yield
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_bootstrap_creates_extensions_schema_and_graph():
     helper = PostgresAgeSpike(dsn=DSN, graph_name=f'graphiti_spike_{uuid4().hex}')
     await helper.open()
     try:
-        await _drop_spike_objects(helper)
-        await helper.bootstrap()
-
-        async with helper.connection() as conn, conn.cursor() as cur:
-            await cur.execute(
-                """
-                SELECT extname
-                FROM pg_extension
-                WHERE extname = ANY(%s)
-                """,
-                (['age', 'pg_trgm', 'vector'],),
-            )
-            extensions = {row[0] for row in await cur.fetchall()}
-
-            await cur.execute(
-                """
-                SELECT tablename
-                FROM pg_tables
-                WHERE schemaname = 'public'
-                  AND tablename = ANY(%s)
-                """,
-                (['spike_entity_edges', 'spike_entity_nodes'],),
-            )
-            tables = {row[0] for row in await cur.fetchall()}
-
-            await cur.execute(
-                'SELECT name FROM ag_catalog.ag_graph WHERE name = %s',
-                (helper.graph_name,),
-            )
-            graph_name = await cur.fetchone()
-    finally:
-        try:
+        async with _spike_database_lock(helper):
             await _drop_spike_objects(helper)
-        finally:
-            await helper.close()
+            try:
+                await helper.bootstrap()
+
+                async with helper.connection() as conn, conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT extname
+                        FROM pg_extension
+                        WHERE extname = ANY(%s)
+                        """,
+                        (['age', 'pg_trgm', 'vector'],),
+                    )
+                    extensions = {row[0] for row in await cur.fetchall()}
+
+                    await cur.execute(
+                        """
+                        SELECT tablename
+                        FROM pg_tables
+                        WHERE schemaname = 'public'
+                          AND tablename = ANY(%s)
+                        """,
+                        (['spike_entity_edges', 'spike_entity_nodes'],),
+                    )
+                    tables = {row[0] for row in await cur.fetchall()}
+
+                    await cur.execute(
+                        'SELECT name FROM ag_catalog.ag_graph WHERE name = %s',
+                        (helper.graph_name,),
+                    )
+                    graph_name = await cur.fetchone()
+            finally:
+                await _drop_spike_objects(helper)
+    finally:
+        await helper.close()
 
     assert extensions == {'age', 'pg_trgm', 'vector'}
     assert tables == {'spike_entity_edges', 'spike_entity_nodes'}
@@ -108,33 +128,34 @@ async def test_save_and_load_entity_node_from_canonical_table():
     helper = PostgresAgeSpike(dsn=DSN, graph_name=f'graphiti_spike_{uuid4().hex}')
     await helper.open()
     try:
-        await _drop_spike_objects(helper)
-        await helper.bootstrap()
-        await helper.clear()
-
-        await helper.save_entity_node(
-            uuid='alice',
-            group_id='main',
-            name='Alice',
-            summary='Alice likes graph databases',
-            labels=['Person'],
-            attributes={'role': 'engineer'},
-            embedding=[0.1, 0.2, 0.3],
-        )
-
-        node = await helper.get_entity_node('alice')
-        projection_rows = await helper.execute_cypher(
-            """
-            MATCH (n:Entity {uuid: 'alice'})
-            RETURN n.uuid
-            """,
-            'uuid agtype',
-        )
-    finally:
-        try:
+        async with _spike_database_lock(helper):
             await _drop_spike_objects(helper)
-        finally:
-            await helper.close()
+            try:
+                await helper.bootstrap()
+                await helper.clear()
+
+                await helper.save_entity_node(
+                    uuid='alice',
+                    group_id='main',
+                    name='Alice',
+                    summary='Alice likes graph databases',
+                    labels=['Person'],
+                    attributes={'role': 'engineer'},
+                    embedding=[0.1, 0.2, 0.3],
+                )
+
+                node = await helper.get_entity_node('alice')
+                projection_rows = await helper.execute_cypher(
+                    """
+                    MATCH (n:Entity {uuid: 'alice'})
+                    RETURN n.uuid
+                    """,
+                    'uuid agtype',
+                )
+            finally:
+                await _drop_spike_objects(helper)
+    finally:
+        await helper.close()
 
     assert node['uuid'] == 'alice'
     assert node['name'] == 'Alice'
