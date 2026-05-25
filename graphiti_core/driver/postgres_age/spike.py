@@ -16,6 +16,7 @@ from typing_extensions import LiteralString
 _CYPHER_COLUMNS_RE = re.compile(
     r'\A\s*[A-Za-z_][A-Za-z0-9_]*\s+agtype(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*\s+agtype)*\s*\Z'
 )
+_MAX_BFS_DEPTH = 5
 
 
 class PostgresAgeSpike:
@@ -307,8 +308,8 @@ class PostgresAgeSpike:
             return dict(row)
 
     async def bfs_entity_uuids(self, origin_uuid: str, max_depth: int = 1) -> list[str]:
-        if type(max_depth) is not int or max_depth < 1:
-            raise ValueError('max_depth must be a positive integer')
+        if type(max_depth) is not int or not 1 <= max_depth <= _MAX_BFS_DEPTH:
+            raise ValueError(f'max_depth must be between 1 and {_MAX_BFS_DEPTH}')
 
         cypher_query = f"""
         MATCH (:Entity {{uuid: {json.dumps(origin_uuid)}}})-[:RELATES_TO*1..{max_depth}]->(n:Entity)
@@ -361,6 +362,13 @@ class PostgresAgeSpike:
         target_node_uuid: str,
         name: str,
     ) -> None:
+        await self._execute_trusted_cypher(
+            cur,
+            f"""
+            MATCH ()-[old_edge:RELATES_TO {{uuid: {json.dumps(uuid)}}}]->()
+            DELETE old_edge
+            """,
+        )
         cypher_query = f"""
         MATCH (source_node:Entity {{uuid: {json.dumps(source_node_uuid)}}})
         MATCH (target_node:Entity {{uuid: {json.dumps(target_node_uuid)}}})

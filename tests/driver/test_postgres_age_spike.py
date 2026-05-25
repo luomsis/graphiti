@@ -41,6 +41,14 @@ async def test_execute_cypher_rejects_non_agtype_columns_before_connecting():
         await helper.execute_cypher('RETURN 1', 'uuid text')
 
 
+@pytest.mark.asyncio
+async def test_bfs_rejects_unbounded_depth_before_connecting():
+    helper = PostgresAgeSpike(dsn=DSN)
+
+    with pytest.raises(ValueError, match='between 1 and 5'):
+        await helper.bfs_entity_uuids('alice', max_depth=6)
+
+
 async def _drop_spike_objects(helper: PostgresAgeSpike) -> None:
     if helper.pool is None:
         raise RuntimeError('helper must be open before cleanup')
@@ -194,6 +202,15 @@ async def test_save_entity_edge_and_bfs_through_age_projection():
                     attributes={'role': 'designer'},
                     embedding=[0.2, 0.3, 0.4],
                 )
+                await helper.save_entity_node(
+                    uuid='carol',
+                    group_id='main',
+                    name='Carol',
+                    summary='Carol likes canonical rows',
+                    labels=['Person'],
+                    attributes={'role': 'analyst'},
+                    embedding=[0.3, 0.4, 0.5],
+                )
 
                 await helper.save_entity_edge(
                     uuid='edge-1',
@@ -207,6 +224,19 @@ async def test_save_entity_edge_and_bfs_through_age_projection():
 
                 edge = await helper.get_entity_edge('edge-1')
                 bfs_result = await helper.bfs_entity_uuids('alice', max_depth=1)
+
+                await helper.save_entity_edge(
+                    uuid='edge-1',
+                    group_id='main',
+                    source_node_uuid='alice',
+                    target_node_uuid='carol',
+                    name='LIKES',
+                    fact='Alice likes Carol',
+                    embedding=[0.4, 0.5, 0.6],
+                )
+
+                updated_edge = await helper.get_entity_edge('edge-1')
+                updated_bfs_result = await helper.bfs_entity_uuids('alice', max_depth=1)
             finally:
                 await _drop_spike_objects(helper)
     finally:
@@ -216,3 +246,6 @@ async def test_save_entity_edge_and_bfs_through_age_projection():
     assert edge['source_node_uuid'] == 'alice'
     assert edge['target_node_uuid'] == 'bob'
     assert bfs_result == ['bob']
+    assert updated_edge['source_node_uuid'] == 'alice'
+    assert updated_edge['target_node_uuid'] == 'carol'
+    assert updated_bfs_result == ['carol']
