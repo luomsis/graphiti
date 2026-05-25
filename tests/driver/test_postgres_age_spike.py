@@ -110,6 +110,47 @@ async def _spike_database_lock(helper: PostgresAgeSpike) -> AsyncIterator[None]:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_failed_projection_write_rolls_back_canonical_write():
+    helper = PostgresAgeSpike(dsn=DSN, graph_name=f'graphiti_spike_{uuid4().hex}')
+    await helper.open()
+    try:
+        async with _spike_database_lock(helper):
+            await _drop_spike_objects(helper)
+            try:
+                await helper.bootstrap()
+                await helper.clear()
+
+                with pytest.raises(RuntimeError, match='forced projection failure'):
+                    await helper.save_entity_node_then_fail_projection(
+                        uuid='rollback-node',
+                        group_id='main',
+                        name='Rollback Node',
+                        summary='This canonical write should roll back',
+                        labels=['Entity'],
+                        attributes={'rollback': True},
+                        embedding=[0.1, 0.2, 0.3],
+                    )
+
+                async with helper.connection() as conn, conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT uuid
+                        FROM public.spike_entity_nodes
+                        WHERE uuid = %s
+                        """,
+                        ('rollback-node',),
+                    )
+                    rows = await cur.fetchall()
+            finally:
+                await _drop_spike_objects(helper)
+    finally:
+        await helper.close()
+
+    assert rows == []
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_bootstrap_creates_extensions_schema_and_graph():
     helper = PostgresAgeSpike(dsn=DSN, graph_name=f'graphiti_spike_{uuid4().hex}')
     await helper.open()

@@ -221,6 +221,49 @@ class PostgresAgeSpike:
                 await conn.rollback()
                 raise
 
+    async def save_entity_node_then_fail_projection(
+        self,
+        uuid: str,
+        group_id: str,
+        name: str,
+        summary: str,
+        labels: Sequence[str],
+        attributes: dict[str, Any],
+        embedding: Sequence[float] | None,
+    ) -> None:
+        labels_list = list(labels)
+        async with self.connection() as conn:
+            try:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO public.spike_entity_nodes (
+                            uuid,
+                            group_id,
+                            name,
+                            summary,
+                            labels,
+                            attributes,
+                            name_embedding
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            uuid,
+                            group_id,
+                            name,
+                            summary,
+                            labels_list,
+                            Jsonb(attributes),
+                            list(embedding) if embedding is not None else None,
+                        ),
+                    )
+                    raise RuntimeError('forced projection failure')
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+
     async def get_entity_node(self, uuid: str) -> dict[str, Any]:
         async with self.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
