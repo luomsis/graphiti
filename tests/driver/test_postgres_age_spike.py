@@ -162,3 +162,57 @@ async def test_save_and_load_entity_node_from_canonical_table():
     assert node['labels'] == ['Person']
     assert node['attributes'] == {'role': 'engineer'}
     assert [helper.decode_agtype_scalar(row['uuid']) for row in projection_rows] == ['alice']
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_save_entity_edge_and_bfs_through_age_projection():
+    helper = PostgresAgeSpike(dsn=DSN, graph_name=f'graphiti_spike_{uuid4().hex}')
+    await helper.open()
+    try:
+        async with _spike_database_lock(helper):
+            await _drop_spike_objects(helper)
+            try:
+                await helper.bootstrap()
+                await helper.clear()
+
+                await helper.save_entity_node(
+                    uuid='alice',
+                    group_id='main',
+                    name='Alice',
+                    summary='Alice likes graph databases',
+                    labels=['Person'],
+                    attributes={'role': 'engineer'},
+                    embedding=[0.1, 0.2, 0.3],
+                )
+                await helper.save_entity_node(
+                    uuid='bob',
+                    group_id='main',
+                    name='Bob',
+                    summary='Bob likes vector search',
+                    labels=['Person'],
+                    attributes={'role': 'designer'},
+                    embedding=[0.2, 0.3, 0.4],
+                )
+
+                await helper.save_entity_edge(
+                    uuid='edge-1',
+                    group_id='main',
+                    source_node_uuid='alice',
+                    target_node_uuid='bob',
+                    name='LIKES',
+                    fact='Alice likes Bob',
+                    embedding=[0.1, 0.2, 0.3],
+                )
+
+                edge = await helper.get_entity_edge('edge-1')
+                bfs_result = await helper.bfs_entity_uuids('alice', max_depth=1)
+            finally:
+                await _drop_spike_objects(helper)
+    finally:
+        await helper.close()
+
+    assert edge['uuid'] == 'edge-1'
+    assert edge['source_node_uuid'] == 'alice'
+    assert edge['target_node_uuid'] == 'bob'
+    assert bfs_result == ['bob']

@@ -235,6 +235,88 @@ class PostgresAgeSpike:
                 raise KeyError(uuid)
             return dict(row)
 
+    async def save_entity_edge(
+        self,
+        uuid: str,
+        group_id: str,
+        source_node_uuid: str,
+        target_node_uuid: str,
+        name: str,
+        fact: str,
+        embedding: Sequence[float] | None,
+    ) -> None:
+        async with self.connection() as conn:
+            try:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO public.spike_entity_edges (
+                            uuid,
+                            group_id,
+                            source_node_uuid,
+                            target_node_uuid,
+                            name,
+                            fact,
+                            fact_embedding
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (uuid) DO UPDATE SET
+                            group_id = EXCLUDED.group_id,
+                            source_node_uuid = EXCLUDED.source_node_uuid,
+                            target_node_uuid = EXCLUDED.target_node_uuid,
+                            name = EXCLUDED.name,
+                            fact = EXCLUDED.fact,
+                            fact_embedding = EXCLUDED.fact_embedding
+                        """,
+                        (
+                            uuid,
+                            group_id,
+                            source_node_uuid,
+                            target_node_uuid,
+                            name,
+                            fact,
+                            list(embedding) if embedding is not None else None,
+                        ),
+                    )
+                    await self._merge_edge_projection(
+                        cur,
+                        uuid,
+                        group_id,
+                        source_node_uuid,
+                        target_node_uuid,
+                        name,
+                    )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+
+    async def get_entity_edge(self, uuid: str) -> dict[str, Any]:
+        async with self.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                SELECT uuid, group_id, source_node_uuid, target_node_uuid, name, fact
+                FROM public.spike_entity_edges
+                WHERE uuid = %s
+                """,
+                (uuid,),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                raise KeyError(uuid)
+            return dict(row)
+
+    async def bfs_entity_uuids(self, origin_uuid: str, max_depth: int = 1) -> list[str]:
+        if type(max_depth) is not int or max_depth < 1:
+            raise ValueError('max_depth must be a positive integer')
+
+        cypher_query = f"""
+        MATCH (:Entity {{uuid: {json.dumps(origin_uuid)}}})-[:RELATES_TO*1..{max_depth}]->(n:Entity)
+        RETURN DISTINCT n.uuid
+        """
+        rows = await self.execute_cypher(cypher_query, 'uuid agtype')
+        return sorted(str(self.decode_agtype_scalar(row['uuid'])) for row in rows)
+
     async def execute_cypher(self, cypher_query: str, columns: str) -> list[dict]:
         """Execute trusted spike Cypher with conservative SQL breakout checks.
 
@@ -267,6 +349,25 @@ class PostgresAgeSpike:
             n.name = {json.dumps(name)},
             n.node_kind = 'Entity',
             n.labels = {json.dumps(list(labels))}
+        """
+        await self._execute_trusted_cypher(cur, cypher_query)
+
+    async def _merge_edge_projection(
+        self,
+        cur: AsyncCursor[Any],
+        uuid: str,
+        group_id: str,
+        source_node_uuid: str,
+        target_node_uuid: str,
+        name: str,
+    ) -> None:
+        cypher_query = f"""
+        MATCH (source_node:Entity {{uuid: {json.dumps(source_node_uuid)}}})
+        MATCH (target_node:Entity {{uuid: {json.dumps(target_node_uuid)}}})
+        MERGE (source_node)-[e:RELATES_TO {{uuid: {json.dumps(uuid)}}}]->(target_node)
+        SET e.group_id = {json.dumps(group_id)},
+            e.edge_kind = 'RELATES_TO',
+            e.name = {json.dumps(name)}
         """
         await self._execute_trusted_cypher(cur, cypher_query)
 
