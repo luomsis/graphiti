@@ -164,4 +164,4 @@ def _query_params(
     if not kwargs:
         return None
 
-    return {key: value for key, value in kwargs.items() if value is not None}
+    return kwargs
