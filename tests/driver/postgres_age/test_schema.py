@@ -108,6 +108,30 @@ async def test_delete_existing_replaces_stale_tables_and_graph(postgres_age_driv
 
 
 @pytest.mark.integration
+async def test_delete_all_indexes_drops_canonical_tables_and_graph(postgres_age_driver):
+    await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+
+    await postgres_age_driver.delete_all_indexes()
+
+    records, _, _ = await postgres_age_driver.execute_query(
+        """
+        SELECT tablename
+        FROM pg_tables
+        WHERE schemaname = 'public'
+          AND tablename = ANY(%s)
+        """,
+        params=(sorted(EXPECTED_TABLES),),
+    )
+    assert records == []
+
+    records, _, _ = await postgres_age_driver.execute_query(
+        'SELECT name FROM ag_catalog.ag_graph WHERE name = %s',
+        params=(postgres_age_driver.graph_name,),
+    )
+    assert records == []
+
+
+@pytest.mark.integration
 async def test_build_indices_honors_custom_schema(postgres_age_dsn):
     driver = PostgresAgeDriver(
         dsn=postgres_age_dsn,
