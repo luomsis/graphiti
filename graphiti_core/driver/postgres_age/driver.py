@@ -6,14 +6,21 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from graphiti_core.driver.driver import GraphDriver, GraphDriverSession, GraphProvider
+from graphiti_core.driver.operations.community_node_ops import CommunityNodeOperations
 from graphiti_core.driver.operations.entity_node_ops import EntityNodeOperations
 from graphiti_core.driver.operations.episode_node_ops import EpisodeNodeOperations
 from graphiti_core.driver.postgres_age.deps import import_postgres_age_dependencies
+from graphiti_core.driver.postgres_age.operations.community_node_ops import (
+    PostgresAgeCommunityNodeOperations,
+)
 from graphiti_core.driver.postgres_age.operations.entity_node_ops import (
     PostgresAgeEntityNodeOperations,
 )
 from graphiti_core.driver.postgres_age.operations.episode_node_ops import (
     PostgresAgeEpisodeNodeOperations,
+)
+from graphiti_core.driver.postgres_age.operations.saga_node_ops import (
+    PostgresAgeSagaNodeOperations,
 )
 from graphiti_core.driver.postgres_age.schema import (
     drop_canonical_indexes,
@@ -54,6 +61,8 @@ class PostgresAgeDriver(GraphDriver):
         self._closed = False
         self._entity_node_ops = PostgresAgeEntityNodeOperations()
         self._episode_node_ops = PostgresAgeEpisodeNodeOperations()
+        self._community_node_ops = PostgresAgeCommunityNodeOperations()
+        self._saga_node_ops = PostgresAgeSagaNodeOperations()
 
     async def _ensure_open(self) -> None:
         if self._closed:
@@ -149,6 +158,14 @@ class PostgresAgeDriver(GraphDriver):
     @property
     def episode_node_ops(self) -> EpisodeNodeOperations:
         return self._episode_node_ops
+
+    @property
+    def community_node_ops(self) -> CommunityNodeOperations:
+        return self._community_node_ops
+
+    @property
+    def saga_node_ops(self) -> PostgresAgeSagaNodeOperations:
+        return self._saga_node_ops
 
 
 class PostgresAgeTransaction(Transaction):

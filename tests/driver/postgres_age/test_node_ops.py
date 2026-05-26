@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from graphiti_core.errors import NodeNotFoundError
-from graphiti_core.nodes import EntityNode, EpisodeType, EpisodicNode
+from graphiti_core.nodes import CommunityNode, EntityNode, EpisodeType, EpisodicNode, SagaNode
 
 CREATED_AT = datetime(2026, 5, 26, 10, 0, tzinfo=timezone.utc)
 VALID_AT = datetime(2026, 5, 26, 9, 0, tzinfo=timezone.utc)
@@ -179,3 +179,164 @@ async def test_episodic_retrieve_treats_empty_group_ids_as_unfiltered_and_accept
     )
 
     assert [episode.uuid for episode in retrieved] == ['episode-main', 'episode-other']
+
+
+@pytest.mark.integration
+async def test_community_node_ops_save_load_embedding_and_group_queries(postgres_age_driver):
+    await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+    nodes = [
+        CommunityNode(
+            uuid='community-a',
+            name='Team A',
+            group_id='main',
+            summary='Alpha',
+            name_embedding=[0.2] * 384,
+            created_at=CREATED_AT,
+        ),
+        CommunityNode(
+            uuid='community-b',
+            name='Team B',
+            group_id='other',
+            summary='Beta',
+            name_embedding=[0.3] * 384,
+            created_at=CREATED_AT,
+        ),
+    ]
+
+    await postgres_age_driver.community_node_ops.save_bulk(postgres_age_driver, nodes)
+    loaded = await postgres_age_driver.community_node_ops.get_by_uuid(
+        postgres_age_driver, 'community-a'
+    )
+    group_loaded = await postgres_age_driver.community_node_ops.get_by_group_ids(
+        postgres_age_driver, ['main']
+    )
+
+    assert loaded.summary == 'Alpha'
+    loaded.name_embedding = None
+    await postgres_age_driver.community_node_ops.load_name_embedding(postgres_age_driver, loaded)
+    assert loaded.name_embedding == pytest.approx([0.2] * 384)
+    assert [node.uuid for node in group_loaded] == ['community-a']
+
+    await postgres_age_driver.community_node_ops.delete_by_uuids(
+        postgres_age_driver, ['community-a']
+    )
+    with pytest.raises(NodeNotFoundError):
+        await postgres_age_driver.community_node_ops.get_by_uuid(
+            postgres_age_driver, 'community-a'
+        )
+
+
+@pytest.mark.integration
+async def test_saga_node_ops_save_queries_and_episode_contents(postgres_age_driver):
+    await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+    episodes = [
+        EpisodicNode(
+            uuid='episode-1',
+            name='episode one',
+            group_id='main',
+            source=EpisodeType.message,
+            source_description='chat',
+            content='First',
+            valid_at=VALID_AT,
+            created_at=VALID_AT,
+        ),
+        EpisodicNode(
+            uuid='episode-2',
+            name='episode two',
+            group_id='main',
+            source=EpisodeType.message,
+            source_description='chat',
+            content='Second',
+            valid_at=CREATED_AT,
+            created_at=CREATED_AT,
+        ),
+    ]
+    saga = SagaNode(
+        uuid='saga-1',
+        name='Daily Standup',
+        group_id='main',
+        summary='Initial summary',
+        first_episode_uuid='episode-1',
+        last_episode_uuid='episode-2',
+        created_at=CREATED_AT,
+    )
+
+    await postgres_age_driver.episode_node_ops.save_bulk(postgres_age_driver, episodes)
+    await postgres_age_driver.saga_node_ops.save(postgres_age_driver, saga)
+    await postgres_age_driver.execute_query(
+        """
+        INSERT INTO has_episode_edges (
+            uuid, group_id, source_node_uuid, target_node_uuid, created_at
+        )
+        VALUES
+            ('has-1', 'main', 'saga-1', 'episode-1', %(created_at)s),
+            ('has-2', 'main', 'saga-1', 'episode-2', %(created_at)s)
+        """,
+        params={'created_at': CREATED_AT},
+    )
+
+    loaded = await postgres_age_driver.saga_node_ops.get_by_uuid(postgres_age_driver, saga.uuid)
+    previous_uuid = await postgres_age_driver.saga_node_ops.get_previous_episode_uuid(
+        postgres_age_driver, saga.uuid, 'episode-2'
+    )
+    contents = await postgres_age_driver.saga_node_ops.get_episode_contents(
+        postgres_age_driver, saga.uuid, limit=10
+    )
+
+    assert loaded.summary == 'Initial summary'
+    assert previous_uuid == 'episode-1'
+    assert contents == [('First', VALID_AT), ('Second', CREATED_AT)]
+
+
+@pytest.mark.integration
+async def test_saga_episode_contents_limits_recent_window_then_returns_chronological(
+    postgres_age_driver,
+):
+    await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+    episodes = [
+        EpisodicNode(
+            uuid=f'episode-{index}',
+            name=f'episode {index}',
+            group_id='main',
+            source=EpisodeType.message,
+            source_description='chat',
+            content=f'Content {index}',
+            valid_at=datetime(2026, 5, 26, 9 + index, 0, tzinfo=timezone.utc),
+            created_at=datetime(2026, 5, 26, 9 + index, 0, tzinfo=timezone.utc),
+        )
+        for index in range(4)
+    ]
+    saga = SagaNode(
+        uuid='saga-window',
+        name='Window',
+        group_id='main',
+        created_at=CREATED_AT,
+    )
+
+    await postgres_age_driver.episode_node_ops.save_bulk(postgres_age_driver, episodes)
+    await postgres_age_driver.saga_node_ops.save(postgres_age_driver, saga)
+    for index in range(4):
+        await postgres_age_driver.execute_query(
+            """
+            INSERT INTO has_episode_edges (
+                uuid, group_id, source_node_uuid, target_node_uuid, created_at
+            )
+            VALUES (
+                %(uuid)s, 'main', 'saga-window', %(episode_uuid)s, %(created_at)s
+            )
+            """,
+            params={
+                'uuid': f'has-window-{index}',
+                'episode_uuid': f'episode-{index}',
+                'created_at': CREATED_AT,
+            },
+        )
+
+    contents = await postgres_age_driver.saga_node_ops.get_episode_contents(
+        postgres_age_driver, saga.uuid, limit=2
+    )
+
+    assert contents == [
+        ('Content 2', datetime(2026, 5, 26, 11, 0, tzinfo=timezone.utc)),
+        ('Content 3', datetime(2026, 5, 26, 12, 0, tzinfo=timezone.utc)),
+    ]
