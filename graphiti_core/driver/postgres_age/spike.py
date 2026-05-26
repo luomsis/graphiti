@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, cast
 
@@ -181,6 +181,63 @@ class PostgresAgeSpike:
         attributes: dict[str, Any],
         embedding: Sequence[float] | None,
     ) -> None:
+        await self._save_entity_node_with_projection(
+            uuid,
+            group_id,
+            name,
+            summary,
+            labels,
+            attributes,
+            embedding,
+            self._merge_entity_projection,
+        )
+
+    async def save_entity_node_then_fail_projection(
+        self,
+        uuid: str,
+        group_id: str,
+        name: str,
+        summary: str,
+        labels: Sequence[str],
+        attributes: dict[str, Any],
+        embedding: Sequence[float] | None,
+    ) -> None:
+        async def fail_projection(
+            cur: AsyncCursor[Any],
+            _uuid: str,
+            _group_id: str,
+            _name: str,
+            _labels: Sequence[str],
+        ) -> None:
+            try:
+                await self._execute_trusted_cypher(cur, 'THIS IS NOT VALID CYPHER')
+            except Exception as exc:
+                raise RuntimeError('forced projection failure') from exc
+
+        await self._save_entity_node_with_projection(
+            uuid,
+            group_id,
+            name,
+            summary,
+            labels,
+            attributes,
+            embedding,
+            fail_projection,
+        )
+
+    async def _save_entity_node_with_projection(
+        self,
+        uuid: str,
+        group_id: str,
+        name: str,
+        summary: str,
+        labels: Sequence[str],
+        attributes: dict[str, Any],
+        embedding: Sequence[float] | None,
+        projection_writer: Callable[
+            [AsyncCursor[Any], str, str, str, Sequence[str]], Awaitable[None]
+        ],
+    ) -> None:
         labels_list = list(labels)
         async with self.connection() as conn:
             try:
@@ -215,50 +272,7 @@ class PostgresAgeSpike:
                             list(embedding) if embedding is not None else None,
                         ),
                     )
-                    await self._merge_entity_projection(cur, uuid, group_id, name, labels_list)
-                await conn.commit()
-            except Exception:
-                await conn.rollback()
-                raise
-
-    async def save_entity_node_then_fail_projection(
-        self,
-        uuid: str,
-        group_id: str,
-        name: str,
-        summary: str,
-        labels: Sequence[str],
-        attributes: dict[str, Any],
-        embedding: Sequence[float] | None,
-    ) -> None:
-        labels_list = list(labels)
-        async with self.connection() as conn:
-            try:
-                async with conn.cursor() as cur:
-                    await cur.execute(
-                        """
-                        INSERT INTO public.spike_entity_nodes (
-                            uuid,
-                            group_id,
-                            name,
-                            summary,
-                            labels,
-                            attributes,
-                            name_embedding
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            uuid,
-                            group_id,
-                            name,
-                            summary,
-                            labels_list,
-                            Jsonb(attributes),
-                            list(embedding) if embedding is not None else None,
-                        ),
-                    )
-                    raise RuntimeError('forced projection failure')
+                    await projection_writer(cur, uuid, group_id, name, labels_list)
                 await conn.commit()
             except Exception:
                 await conn.rollback()
