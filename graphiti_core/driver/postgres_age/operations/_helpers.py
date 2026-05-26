@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from graphiti_core.driver.postgres_age.projection import cypher_sql, node_delete_projection_cypher
 from graphiti_core.driver.query_executor import QueryExecutor, Transaction
 
 
@@ -34,6 +35,46 @@ async def run_statement(
         await tx.run(query, params=params)
     else:
         await executor.execute_query(query, params=params)
+
+
+async def fetch_records(
+    executor: QueryExecutor,
+    tx: Transaction | None,
+    query: str,
+    params: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if tx is not None:
+        records, _, _ = await tx.run(query, params=params)
+    else:
+        records, _, _ = await executor.execute_query(query, params=params, routing_='r')
+    return records
+
+
+async def run_age_cypher(
+    executor: QueryExecutor,
+    tx: Transaction | None,
+    cypher_query: str,
+    columns: str = 'value agtype',
+) -> None:
+    postgres_executor: Any = executor
+    deps = postgres_executor._deps
+    graph_name = postgres_executor.graph_name
+    query = cypher_sql(deps, graph_name, cypher_query, columns)
+    if tx is not None:
+        await tx.run(query, params=None)
+    else:
+        await executor.execute_query(query, params=None)
+
+
+async def delete_node_projection(
+    executor: QueryExecutor,
+    tx: Transaction | None,
+    label: str,
+    uuids: list[str],
+) -> None:
+    if not uuids:
+        return
+    await run_age_cypher(executor, tx, node_delete_projection_cypher(label, uuids))
 
 
 def jsonb(executor: QueryExecutor, value: dict[str, Any] | None) -> Any:

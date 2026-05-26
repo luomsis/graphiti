@@ -6,12 +6,23 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from graphiti_core.driver.driver import GraphDriver, GraphDriverSession, GraphProvider
+from graphiti_core.driver.operations.community_edge_ops import CommunityEdgeOperations
 from graphiti_core.driver.operations.community_node_ops import CommunityNodeOperations
+from graphiti_core.driver.operations.entity_edge_ops import EntityEdgeOperations
 from graphiti_core.driver.operations.entity_node_ops import EntityNodeOperations
 from graphiti_core.driver.operations.episode_node_ops import EpisodeNodeOperations
+from graphiti_core.driver.operations.episodic_edge_ops import EpisodicEdgeOperations
+from graphiti_core.driver.operations.has_episode_edge_ops import HasEpisodeEdgeOperations
+from graphiti_core.driver.operations.next_episode_edge_ops import NextEpisodeEdgeOperations
 from graphiti_core.driver.postgres_age.deps import import_postgres_age_dependencies
+from graphiti_core.driver.postgres_age.operations.community_edge_ops import (
+    PostgresAgeCommunityEdgeOperations,
+)
 from graphiti_core.driver.postgres_age.operations.community_node_ops import (
     PostgresAgeCommunityNodeOperations,
+)
+from graphiti_core.driver.postgres_age.operations.entity_edge_ops import (
+    PostgresAgeEntityEdgeOperations,
 )
 from graphiti_core.driver.postgres_age.operations.entity_node_ops import (
     PostgresAgeEntityNodeOperations,
@@ -19,9 +30,19 @@ from graphiti_core.driver.postgres_age.operations.entity_node_ops import (
 from graphiti_core.driver.postgres_age.operations.episode_node_ops import (
     PostgresAgeEpisodeNodeOperations,
 )
+from graphiti_core.driver.postgres_age.operations.episodic_edge_ops import (
+    PostgresAgeEpisodicEdgeOperations,
+)
+from graphiti_core.driver.postgres_age.operations.has_episode_edge_ops import (
+    PostgresAgeHasEpisodeEdgeOperations,
+)
+from graphiti_core.driver.postgres_age.operations.next_episode_edge_ops import (
+    PostgresAgeNextEpisodeEdgeOperations,
+)
 from graphiti_core.driver.postgres_age.operations.saga_node_ops import (
     PostgresAgeSagaNodeOperations,
 )
+from graphiti_core.driver.postgres_age.projection import cypher_sql, decode_agtype_value
 from graphiti_core.driver.postgres_age.schema import (
     drop_canonical_indexes,
     rebuild_schema,
@@ -63,6 +84,11 @@ class PostgresAgeDriver(GraphDriver):
         self._episode_node_ops = PostgresAgeEpisodeNodeOperations()
         self._community_node_ops = PostgresAgeCommunityNodeOperations()
         self._saga_node_ops = PostgresAgeSagaNodeOperations()
+        self._entity_edge_ops = PostgresAgeEntityEdgeOperations()
+        self._episodic_edge_ops = PostgresAgeEpisodicEdgeOperations()
+        self._community_edge_ops = PostgresAgeCommunityEdgeOperations()
+        self._has_episode_edge_ops = PostgresAgeHasEpisodeEdgeOperations()
+        self._next_episode_edge_ops = PostgresAgeNextEpisodeEdgeOperations()
 
     async def _ensure_open(self) -> None:
         if self._closed:
@@ -83,7 +109,7 @@ class PostgresAgeDriver(GraphDriver):
             )
         )
 
-    async def execute_query(self, cypher_query_: str, **kwargs: Any) -> PostgresAgeResult:
+    async def execute_query(self, cypher_query_: Any, **kwargs: Any) -> PostgresAgeResult:
         """Execute SQL directly; later AGE Cypher helpers will wrap graph queries."""
         await self._ensure_open()
         params = _query_params(kwargs.pop('params', None), kwargs)
@@ -97,6 +123,18 @@ class PostgresAgeDriver(GraphDriver):
             except Exception:
                 await conn.rollback()
                 raise
+
+    async def execute_age_cypher(
+        self,
+        cypher_query: str,
+        columns: str = 'value agtype',
+    ) -> list[dict[str, Any]]:
+        query = cypher_sql(self._deps, self.graph_name, cypher_query, columns)
+        records, _, _ = await self.execute_query(query, params=None)
+        return [
+            {key: decode_agtype_value(value) for key, value in record.items()}
+            for record in records
+        ]
 
     def session(self, database: str | None = None) -> GraphDriverSession:
         if database is not None:
@@ -167,13 +205,33 @@ class PostgresAgeDriver(GraphDriver):
     def saga_node_ops(self) -> PostgresAgeSagaNodeOperations:
         return self._saga_node_ops
 
+    @property
+    def entity_edge_ops(self) -> EntityEdgeOperations:
+        return self._entity_edge_ops
+
+    @property
+    def episodic_edge_ops(self) -> EpisodicEdgeOperations:
+        return self._episodic_edge_ops
+
+    @property
+    def community_edge_ops(self) -> CommunityEdgeOperations:
+        return self._community_edge_ops
+
+    @property
+    def has_episode_edge_ops(self) -> HasEpisodeEdgeOperations:
+        return self._has_episode_edge_ops
+
+    @property
+    def next_episode_edge_ops(self) -> NextEpisodeEdgeOperations:
+        return self._next_episode_edge_ops
+
 
 class PostgresAgeTransaction(Transaction):
     def __init__(self, conn: Any) -> None:
         self._conn = conn
 
     async def run(
-        self, query: str, params: Sequence[Any] | dict[str, Any] | None = None, **kwargs: Any
+        self, query: Any, params: Sequence[Any] | dict[str, Any] | None = None, **kwargs: Any
     ) -> PostgresAgeResult:
         return await _run_sql(self._conn, query, _query_params(params, kwargs))
 
@@ -209,7 +267,7 @@ class PostgresAgeDriverSession(GraphDriverSession):
 
 
 async def _run_sql(
-    conn: Any, query: str, params: Sequence[Any] | dict[str, Any] | None
+    conn: Any, query: Any, params: Sequence[Any] | dict[str, Any] | None
 ) -> PostgresAgeResult:
     async with conn.cursor() as cursor:
         await cursor.execute(query, params)

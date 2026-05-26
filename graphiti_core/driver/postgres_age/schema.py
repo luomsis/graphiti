@@ -247,13 +247,11 @@ async def create_canonical_tables(
                 group_id text NOT NULL,
                 source_node_uuid text NOT NULL
                     REFERENCES {}.community_nodes(uuid) ON DELETE CASCADE,
-                target_node_uuid text NOT NULL
-                    REFERENCES {}.entity_nodes(uuid) ON DELETE CASCADE,
+                target_node_uuid text NOT NULL,
                 created_at timestamptz NOT NULL
             )
             """
         ).format(
-            deps.sql.Identifier(schema),
             deps.sql.Identifier(schema),
             deps.sql.Identifier(schema),
         )

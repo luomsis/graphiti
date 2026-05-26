@@ -4,6 +4,8 @@ from typing import Any
 
 from graphiti_core.driver.operations.entity_node_ops import EntityNodeOperations
 from graphiti_core.driver.postgres_age.operations._helpers import (
+    delete_node_projection,
+    fetch_records,
     jsonb,
     operation_transaction,
     run_statement,
@@ -73,12 +75,16 @@ class PostgresAgeEntityNodeOperations(EntityNodeOperations):
         tx: Transaction | None = None,
         batch_size: int = 100,
     ) -> None:
-        await run_statement(
-            executor,
-            tx,
-            'DELETE FROM entity_nodes WHERE group_id = %(group_id)s',
-            {'group_id': group_id},
-        )
+        async with operation_transaction(executor, tx) as op_tx:
+            records = await fetch_records(
+                executor,
+                op_tx,
+                'SELECT uuid FROM entity_nodes WHERE group_id = %(group_id)s',
+                {'group_id': group_id},
+            )
+            await self._delete_by_uuids_in_transaction(
+                executor, [row['uuid'] for row in records], op_tx
+            )
 
     async def delete_by_uuids(
         self,
@@ -89,6 +95,24 @@ class PostgresAgeEntityNodeOperations(EntityNodeOperations):
     ) -> None:
         if not uuids:
             return
+        async with operation_transaction(executor, tx) as op_tx:
+            await self._delete_by_uuids_in_transaction(executor, uuids, op_tx)
+
+    async def _delete_by_uuids_in_transaction(
+        self,
+        executor: QueryExecutor,
+        uuids: list[str],
+        tx: Transaction | None,
+    ) -> None:
+        if not uuids:
+            return
+        await delete_node_projection(executor, tx, 'Entity', uuids)
+        await run_statement(
+            executor,
+            tx,
+            'DELETE FROM community_edges WHERE target_node_uuid = ANY(%(uuids)s)',
+            {'uuids': uuids},
+        )
         await run_statement(
             executor,
             tx,
