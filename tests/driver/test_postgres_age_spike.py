@@ -4,6 +4,10 @@ from uuid import uuid4
 
 import pytest
 
+pytest.importorskip('pgvector')
+pytest.importorskip('psycopg')
+pytest.importorskip('psycopg_pool')
+
 from graphiti_core.driver.postgres_age.spike import PostgresAgeSpike
 
 DSN = 'postgresql://graphiti:graphiti@localhost:55432/graphiti'
