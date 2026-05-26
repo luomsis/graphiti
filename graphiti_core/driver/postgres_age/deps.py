@@ -1,9 +1,19 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 
-def import_postgres_age_dependencies() -> tuple[Any, Any, Any, Any, Any]:
+class PostgresAgeDependencies(NamedTuple):
+    register_vector_async: Any
+    AsyncConnection: Any
+    AsyncCursor: Any
+    AsyncConnectionPool: Any
+    Jsonb: Any
+    dict_row: Any
+    sql: Any
+
+
+def import_postgres_age_dependencies() -> PostgresAgeDependencies:
     try:
         from pgvector.psycopg import register_vector_async
         from psycopg import AsyncConnection, AsyncCursor, sql
@@ -17,5 +27,12 @@ def import_postgres_age_dependencies() -> tuple[Any, Any, Any, Any, Any]:
             'or `uv sync --extra postgres-age`.'
         ) from exc
 
-    _ = register_vector_async, sql
-    return AsyncConnection, AsyncCursor, AsyncConnectionPool, Jsonb, dict_row
+    return PostgresAgeDependencies(
+        register_vector_async,
+        AsyncConnection,
+        AsyncCursor,
+        AsyncConnectionPool,
+        Jsonb,
+        dict_row,
+        sql,
+    )
