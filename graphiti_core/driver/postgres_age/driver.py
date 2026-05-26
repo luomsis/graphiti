@@ -8,8 +8,7 @@ from typing import Any
 from graphiti_core.driver.driver import GraphDriver, GraphDriverSession, GraphProvider
 from graphiti_core.driver.postgres_age.deps import import_postgres_age_dependencies
 from graphiti_core.driver.postgres_age.schema import (
-    drop_age_graph,
-    drop_canonical_tables,
+    drop_canonical_indexes,
     rebuild_schema,
 )
 from graphiti_core.driver.query_executor import Transaction
@@ -31,7 +30,7 @@ class PostgresAgeDriver(GraphDriver):
         pool_max_size: int = 10,
     ) -> None:
         self.dsn = dsn
-        self.graph_name = graph_name
+        self.graph_name = _effective_graph_name(schema, graph_name)
         self.schema = schema
         self.embedding_dimension = embedding_dimension
         self._database = graph_name
@@ -110,16 +109,7 @@ class PostgresAgeDriver(GraphDriver):
         await self._ensure_open()
         async with self._pool.connection() as conn:
             try:
-                await rebuild_schema(
-                    conn,
-                    self._deps,
-                    self.schema,
-                    self.graph_name,
-                    self.embedding_dimension,
-                    delete_existing=False,
-                )
-                await drop_age_graph(conn, self.graph_name)
-                await drop_canonical_tables(conn, self._deps, self.schema)
+                await drop_canonical_indexes(conn, self._deps, self.schema)
                 await conn.commit()
             except Exception:
                 await conn.rollback()
@@ -216,3 +206,9 @@ def _query_params(
         return None
 
     return kwargs
+
+
+def _effective_graph_name(schema: str, graph_name: str) -> str:
+    if schema != 'public' and graph_name == 'graphiti':
+        return f'{schema}_graphiti'
+    return graph_name

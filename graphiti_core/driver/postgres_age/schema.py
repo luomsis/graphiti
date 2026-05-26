@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from graphiti_core.driver.postgres_age.types import CANONICAL_TABLES
+from graphiti_core.driver.postgres_age.types import (
+    B_TREE_INDEX_SPECS,
+    CANONICAL_TABLES,
+    GIN_INDEX_SPECS,
+    HNSW_INDEX_SPECS,
+    INDEX_NAMES,
+    VECTOR_COLUMNS,
+)
 
 
 async def rebuild_schema(
@@ -25,6 +32,7 @@ async def rebuild_schema(
         await drop_canonical_tables(conn, deps, schema)
 
     await create_canonical_tables(conn, deps, schema, embedding_dimension)
+    await validate_vector_dimensions(conn, schema, embedding_dimension)
     await create_canonical_indexes(conn, deps, schema)
     await create_age_graph(conn, graph_name)
 
@@ -69,6 +77,26 @@ async def drop_canonical_tables(conn: Any, deps: Any, schema: str) -> None:
             deps.sql.SQL('DROP TABLE IF EXISTS {}.{} CASCADE').format(
                 deps.sql.Identifier(schema),
                 deps.sql.Identifier(table),
+            )
+        )
+
+
+async def drop_canonical_indexes(conn: Any, deps: Any, schema: str) -> None:
+    result = await conn.execute(
+        """
+        SELECT indexname
+        FROM pg_indexes
+        WHERE schemaname = %s
+          AND indexname = ANY(%s)
+        """,
+        (schema, list(INDEX_NAMES)),
+    )
+    rows = await result.fetchall()
+    for row in rows:
+        await conn.execute(
+            deps.sql.SQL('DROP INDEX IF EXISTS {}.{}').format(
+                deps.sql.Identifier(schema),
+                deps.sql.Identifier(row['indexname']),
             )
         )
 
@@ -270,29 +298,33 @@ async def create_canonical_tables(
     )
 
 
+async def validate_vector_dimensions(conn: Any, schema: str, embedding_dimension: int) -> None:
+    for table_name, column_name in VECTOR_COLUMNS:
+        result = await conn.execute(
+            """
+            SELECT a.atttypmod
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = %s
+              AND c.relname = %s
+              AND a.attname = %s
+            """,
+            (schema, table_name, column_name),
+        )
+        row = await result.fetchone()
+        if row is None:
+            raise RuntimeError(f'Missing vector column {schema}.{table_name}.{column_name}')
+        if row['atttypmod'] != embedding_dimension:
+            raise ValueError(
+                f'Existing {schema}.{table_name}.{column_name} dimension '
+                f'{row["atttypmod"]} does not match configured embedding_dimension '
+                f'{embedding_dimension}. Rebuild with delete_existing=True to replace the schema.'
+            )
+
+
 async def create_canonical_indexes(conn: Any, deps: Any, schema: str) -> None:
-    index_specs = [
-        ('entity_nodes_group_id_idx', 'entity_nodes', 'group_id'),
-        ('episodic_nodes_group_id_idx', 'episodic_nodes', 'group_id'),
-        ('community_nodes_group_id_idx', 'community_nodes', 'group_id'),
-        ('saga_nodes_group_id_idx', 'saga_nodes', 'group_id'),
-        ('entity_edges_group_id_idx', 'entity_edges', 'group_id'),
-        ('entity_edges_source_node_uuid_idx', 'entity_edges', 'source_node_uuid'),
-        ('entity_edges_target_node_uuid_idx', 'entity_edges', 'target_node_uuid'),
-        ('episodic_edges_group_id_idx', 'episodic_edges', 'group_id'),
-        ('episodic_edges_source_node_uuid_idx', 'episodic_edges', 'source_node_uuid'),
-        ('episodic_edges_target_node_uuid_idx', 'episodic_edges', 'target_node_uuid'),
-        ('community_edges_group_id_idx', 'community_edges', 'group_id'),
-        ('community_edges_source_node_uuid_idx', 'community_edges', 'source_node_uuid'),
-        ('community_edges_target_node_uuid_idx', 'community_edges', 'target_node_uuid'),
-        ('has_episode_edges_group_id_idx', 'has_episode_edges', 'group_id'),
-        ('has_episode_edges_source_node_uuid_idx', 'has_episode_edges', 'source_node_uuid'),
-        ('has_episode_edges_target_node_uuid_idx', 'has_episode_edges', 'target_node_uuid'),
-        ('next_episode_edges_group_id_idx', 'next_episode_edges', 'group_id'),
-        ('next_episode_edges_source_node_uuid_idx', 'next_episode_edges', 'source_node_uuid'),
-        ('next_episode_edges_target_node_uuid_idx', 'next_episode_edges', 'target_node_uuid'),
-    ]
-    for index_name, table_name, column_name in index_specs:
+    for index_name, table_name, column_name in B_TREE_INDEX_SPECS:
         await conn.execute(
             deps.sql.SQL('CREATE INDEX IF NOT EXISTS {} ON {}.{} ({})').format(
                 deps.sql.Identifier(index_name),
@@ -302,13 +334,7 @@ async def create_canonical_indexes(conn: Any, deps: Any, schema: str) -> None:
             )
         )
 
-    gin_specs = [
-        ('entity_nodes_search_vector_idx', 'entity_nodes'),
-        ('episodic_nodes_search_vector_idx', 'episodic_nodes'),
-        ('community_nodes_search_vector_idx', 'community_nodes'),
-        ('entity_edges_search_vector_idx', 'entity_edges'),
-    ]
-    for index_name, table_name in gin_specs:
+    for index_name, table_name in GIN_INDEX_SPECS:
         await conn.execute(
             deps.sql.SQL('CREATE INDEX IF NOT EXISTS {} ON {}.{} USING gin (search_vector)').format(
                 deps.sql.Identifier(index_name),
@@ -317,12 +343,7 @@ async def create_canonical_indexes(conn: Any, deps: Any, schema: str) -> None:
             )
         )
 
-    hnsw_specs = [
-        ('entity_nodes_name_embedding_hnsw_idx', 'entity_nodes', 'name_embedding'),
-        ('community_nodes_name_embedding_hnsw_idx', 'community_nodes', 'name_embedding'),
-        ('entity_edges_fact_embedding_hnsw_idx', 'entity_edges', 'fact_embedding'),
-    ]
-    for index_name, table_name, column_name in hnsw_specs:
+    for index_name, table_name, column_name in HNSW_INDEX_SPECS:
         await conn.execute(
             deps.sql.SQL(
                 'CREATE INDEX IF NOT EXISTS {} ON {}.{} '

@@ -3,6 +3,7 @@ from contextlib import suppress
 import pytest
 
 from graphiti_core.driver.postgres_age import PostgresAgeDriver
+from graphiti_core.driver.postgres_age.types import INDEX_NAMES
 
 EXPECTED_TABLES = {
     'entity_nodes',
@@ -108,27 +109,73 @@ async def test_delete_existing_replaces_stale_tables_and_graph(postgres_age_driv
 
 
 @pytest.mark.integration
-async def test_delete_all_indexes_drops_canonical_tables_and_graph(postgres_age_driver):
+async def test_build_indices_creates_expected_indexes(postgres_age_driver):
     await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+
+    records, _, _ = await postgres_age_driver.execute_query(
+        """
+        SELECT indexname
+        FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND indexname = ANY(%s)
+        """,
+        params=(list(INDEX_NAMES),),
+    )
+
+    assert {row['indexname'] for row in records} == set(INDEX_NAMES)
+
+
+@pytest.mark.integration
+async def test_delete_all_indexes_drops_only_canonical_indexes(postgres_age_driver):
+    await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+    await postgres_age_driver.execute_query(
+        "INSERT INTO entity_nodes (uuid, group_id, name, created_at) VALUES ('kept', 'g', 'n', now())"
+    )
 
     await postgres_age_driver.delete_all_indexes()
 
     records, _, _ = await postgres_age_driver.execute_query(
         """
-        SELECT tablename
-        FROM pg_tables
+        SELECT indexname
+        FROM pg_indexes
         WHERE schemaname = 'public'
-          AND tablename = ANY(%s)
+          AND indexname = ANY(%s)
         """,
-        params=(sorted(EXPECTED_TABLES),),
+        params=(list(INDEX_NAMES),),
     )
     assert records == []
+
+    records, _, _ = await postgres_age_driver.execute_query('SELECT uuid FROM entity_nodes')
+    assert records == [{'uuid': 'kept'}]
 
     records, _, _ = await postgres_age_driver.execute_query(
         'SELECT name FROM ag_catalog.ag_graph WHERE name = %s',
         params=(postgres_age_driver.graph_name,),
     )
-    assert records == []
+    assert records == [{'name': postgres_age_driver.graph_name}]
+
+
+@pytest.mark.integration
+async def test_build_indices_rejects_existing_vector_dimension_drift(
+    postgres_age_driver, postgres_age_dsn
+):
+    await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+    driver = PostgresAgeDriver(
+        dsn=postgres_age_dsn,
+        graph_name=postgres_age_driver.graph_name,
+        embedding_dimension=1536,
+    )
+    try:
+        with pytest.raises(ValueError, match='embedding_dimension 1536'):
+            await driver.build_indices_and_constraints()
+    finally:
+        await driver.close()
+
+
+def test_default_graph_name_is_schema_scoped_for_custom_schema(postgres_age_dsn):
+    driver = PostgresAgeDriver(dsn=postgres_age_dsn, schema='graphiti_schema_isolated')
+
+    assert driver.graph_name == 'graphiti_schema_isolated_graphiti'
 
 
 @pytest.mark.integration
@@ -155,5 +202,10 @@ async def test_build_indices_honors_custom_schema(postgres_age_dsn):
     finally:
         with suppress(Exception):
             await driver.delete_all_indexes()
+            await driver.build_indices_and_constraints(delete_existing=True)
+            await driver.execute_query(
+                'SELECT drop_graph(%s, true)',
+                params=(driver.graph_name,),
+            )
             await driver.execute_query('DROP SCHEMA IF EXISTS graphiti_schema_test CASCADE')
         await driver.close()
