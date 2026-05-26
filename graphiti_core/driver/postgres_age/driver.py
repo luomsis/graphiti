@@ -39,8 +39,12 @@ class PostgresAgeDriver(GraphDriver):
             kwargs={'row_factory': self._deps.dict_row},
         )
         self._pool_opened = False
+        self._closed = False
 
     async def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError('PostgresAgeDriver is closed')
+
         if self._pool_opened:
             return
 
@@ -50,9 +54,14 @@ class PostgresAgeDriver(GraphDriver):
     async def _setup_connection(self, conn: Any) -> None:
         await self._deps.register_vector_async(conn)
         await conn.execute("LOAD 'age'")
-        await conn.execute('SET search_path = ag_catalog, "$user", public')
+        await conn.execute(
+            self._deps.sql.SQL('SET search_path = {}, ag_catalog, "$user"').format(
+                self._deps.sql.Identifier(self.schema)
+            )
+        )
 
     async def execute_query(self, cypher_query_: str, **kwargs: Any) -> PostgresAgeResult:
+        """Execute SQL directly; later AGE Cypher helpers will wrap graph queries."""
         await self._ensure_open()
         params = _query_params(kwargs.pop('params', None), kwargs)
 
@@ -67,6 +76,9 @@ class PostgresAgeDriver(GraphDriver):
                 raise
 
     def session(self, database: str | None = None) -> GraphDriverSession:
+        if database is not None:
+            raise NotImplementedError('PostgresAgeDriver does not support database override yet')
+
         return PostgresAgeDriverSession(self)
 
     @asynccontextmanager
@@ -79,11 +91,15 @@ class PostgresAgeDriver(GraphDriver):
                 yield PostgresAgeTransaction(conn)
 
     async def close(self) -> None:
+        if self._closed:
+            return
+
         if not self._pool_opened:
+            self._closed = True
             return
 
         await self._pool.close()
-        self._pool_opened = False
+        self._closed = True
 
     async def delete_all_indexes(self) -> None:
         raise NotImplementedError()

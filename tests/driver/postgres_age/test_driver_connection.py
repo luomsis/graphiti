@@ -2,6 +2,8 @@ from uuid import uuid4
 
 import pytest
 
+from graphiti_core.driver.postgres_age import PostgresAgeDriver
+
 
 @pytest.mark.integration
 async def test_execute_query_returns_neo4j_like_tuple(postgres_age_driver):
@@ -35,6 +37,47 @@ async def test_named_kwargs_preserve_none_bindings(postgres_age_driver):
     assert tx_records == [{'value': None}]
     assert tx_summary is None
     assert tx_keys == ['value']
+
+
+@pytest.mark.integration
+async def test_execute_query_after_close_raises_clear_error(postgres_age_driver):
+    await postgres_age_driver.execute_query('SELECT 1 AS value')
+    await postgres_age_driver.close()
+
+    with pytest.raises(RuntimeError, match='PostgresAgeDriver is closed'):
+        await postgres_age_driver.execute_query('SELECT 1 AS value')
+
+
+@pytest.mark.integration
+async def test_connection_search_path_honors_schema(postgres_age_dsn):
+    schema = 'graphiti_connection_test'
+    setup_driver = PostgresAgeDriver(dsn=postgres_age_dsn)
+    schema_driver = PostgresAgeDriver(dsn=postgres_age_dsn, schema=schema)
+
+    try:
+        await setup_driver.execute_query(f'DROP SCHEMA IF EXISTS {schema} CASCADE')
+        await setup_driver.execute_query('DROP TABLE IF EXISTS ag_catalog.schema_probe')
+        await setup_driver.execute_query('DROP TABLE IF EXISTS public.schema_probe')
+        await setup_driver.execute_query(f'CREATE SCHEMA {schema}')
+
+        await schema_driver.execute_query('CREATE TABLE schema_probe (value text)')
+        records, _, _ = await setup_driver.execute_query(
+            """
+            SELECT table_schema
+            FROM information_schema.tables
+            WHERE table_schema = %(schema)s
+              AND table_name = 'schema_probe'
+            """,
+            schema=schema,
+        )
+
+        assert records == [{'table_schema': schema}]
+    finally:
+        await schema_driver.close()
+        await setup_driver.execute_query(f'DROP SCHEMA IF EXISTS {schema} CASCADE')
+        await setup_driver.execute_query('DROP TABLE IF EXISTS ag_catalog.schema_probe')
+        await setup_driver.execute_query('DROP TABLE IF EXISTS public.schema_probe')
+        await setup_driver.close()
 
 
 @pytest.mark.integration
