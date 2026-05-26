@@ -27,7 +27,7 @@
 - Create: `docker/postgres-age/Dockerfile`
 - Create: `docker-compose.postgres-age.yml`
 
-- [ ] **Step 1: Add the optional dependency group**
+- [x] **Step 1: Add the optional dependency group**
 
 Edit `pyproject.toml` and add this entry under `[project.optional-dependencies]`:
 
@@ -35,7 +35,7 @@ Edit `pyproject.toml` and add this entry under `[project.optional-dependencies]`
 postgres-age = ["psycopg[binary,pool]>=3.2.0", "pgvector>=0.3.6"]
 ```
 
-- [ ] **Step 2: Create the PostgreSQL AGE + pgvector Dockerfile**
+- [x] **Step 2: Create the PostgreSQL AGE + pgvector Dockerfile**
 
 Create `docker/postgres-age/Dockerfile`:
 
@@ -58,7 +58,7 @@ RUN apt-get update \
 USER postgres
 ```
 
-- [ ] **Step 3: Create docker compose service**
+- [x] **Step 3: Create docker compose service**
 
 Create `docker-compose.postgres-age.yml`:
 
@@ -81,7 +81,7 @@ services:
       retries: 30
 ```
 
-- [ ] **Step 4: Sync dependencies**
+- [x] **Step 4: Sync dependencies**
 
 Run:
 
@@ -91,7 +91,7 @@ uv sync --extra dev --extra postgres-age
 
 Expected: command exits 0 and installs `psycopg`, `psycopg_pool`, and `pgvector`.
 
-- [ ] **Step 5: Build and start the service**
+- [x] **Step 5: Build and start the service**
 
 Run:
 
@@ -101,7 +101,7 @@ docker compose -f docker-compose.postgres-age.yml up -d --build
 
 Expected: `postgres-age` container starts and becomes healthy.
 
-- [ ] **Step 6: Verify extensions are available**
+- [x] **Step 6: Verify extensions are available**
 
 Run:
 
@@ -111,7 +111,7 @@ docker compose -f docker-compose.postgres-age.yml exec -T postgres-age psql -U g
 
 Expected: command exits 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 Run:
 
@@ -127,7 +127,7 @@ git commit -m "add postgres age spike environment"
 - Create: `graphiti_core/driver/postgres_age/spike.py`
 - Test: `tests/driver/test_postgres_age_spike.py`
 
-- [ ] **Step 1: Write failing import test**
+- [x] **Step 1: Write failing import test**
 
 Create `tests/driver/test_postgres_age_spike.py`:
 
@@ -143,7 +143,7 @@ async def test_spike_helper_can_be_imported():
     assert helper.graph_name == 'graphiti_spike'
 ```
 
-- [ ] **Step 2: Run import test and verify it fails**
+- [x] **Step 2: Run import test and verify it fails**
 
 Run:
 
@@ -153,7 +153,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_spike_helper_can_be_
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'graphiti_core.driver.postgres_age'`.
 
-- [ ] **Step 3: Add package marker**
+- [x] **Step 3: Add package marker**
 
 Create `graphiti_core/driver/postgres_age/__init__.py`:
 
@@ -161,7 +161,7 @@ Create `graphiti_core/driver/postgres_age/__init__.py`:
 """PostgreSQL AGE + pgvector backend support."""
 ```
 
-- [ ] **Step 4: Add minimal helper**
+- [x] **Step 4: Add minimal helper**
 
 Create `graphiti_core/driver/postgres_age/spike.py`:
 
@@ -241,7 +241,7 @@ class PostgresAgeSpike:
             return text.strip('"')
 ```
 
-- [ ] **Step 5: Run import test and verify it passes**
+- [x] **Step 5: Run import test and verify it passes**
 
 Run:
 
@@ -251,7 +251,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_spike_helper_can_be_
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -266,7 +266,7 @@ git commit -m "add postgres age spike helper"
 - Modify: `graphiti_core/driver/postgres_age/spike.py`
 - Modify: `tests/driver/test_postgres_age_spike.py`
 
-- [ ] **Step 1: Add failing bootstrap test**
+- [x] **Step 1: Add failing bootstrap test**
 
 Append to `tests/driver/test_postgres_age_spike.py`:
 
@@ -303,7 +303,7 @@ async def test_bootstrap_creates_extensions_schema_and_graph():
         await helper.close()
 ```
 
-- [ ] **Step 2: Run bootstrap test and verify it fails**
+- [x] **Step 2: Run bootstrap test and verify it fails**
 
 Run:
 
@@ -313,7 +313,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_bootstrap_creates_ex
 
 Expected: FAIL with `AttributeError: 'PostgresAgeSpike' object has no attribute 'bootstrap'`.
 
-- [ ] **Step 3: Implement bootstrap**
+- [x] **Step 3: Implement bootstrap**
 
 Add this method to `PostgresAgeSpike` in `graphiti_core/driver/postgres_age/spike.py`:
 
@@ -398,7 +398,7 @@ Add this method to `PostgresAgeSpike` in `graphiti_core/driver/postgres_age/spik
             await conn.commit()
 ```
 
-- [ ] **Step 4: Run bootstrap test and verify it passes**
+- [x] **Step 4: Run bootstrap test and verify it passes**
 
 Run:
 
@@ -408,7 +408,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_bootstrap_creates_ex
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -423,7 +423,7 @@ git commit -m "bootstrap postgres age spike schema"
 - Modify: `graphiti_core/driver/postgres_age/spike.py`
 - Modify: `tests/driver/test_postgres_age_spike.py`
 
-- [ ] **Step 1: Add failing save/load test**
+- [x] **Step 1: Add failing save/load test**
 
 Append to `tests/driver/test_postgres_age_spike.py`:
 
@@ -453,7 +453,7 @@ async def test_save_and_load_entity_node_from_canonical_table():
         await helper.close()
 ```
 
-- [ ] **Step 2: Run test and verify it fails**
+- [x] **Step 2: Run test and verify it fails**
 
 Run:
 
@@ -463,7 +463,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_save_and_load_entity
 
 Expected: FAIL with `AttributeError` for `clear` or `save_entity_node`.
 
-- [ ] **Step 3: Implement clear, save, and get**
+- [x] **Step 3: Implement clear, save, and get**
 
 Add these methods to `PostgresAgeSpike`:
 
@@ -547,7 +547,7 @@ Add these methods to `PostgresAgeSpike`:
         await cur.execute(query)
 ```
 
-- [ ] **Step 4: Run test and verify it passes**
+- [x] **Step 4: Run test and verify it passes**
 
 Run:
 
@@ -557,7 +557,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_save_and_load_entity
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -572,7 +572,7 @@ git commit -m "save postgres age spike entity nodes"
 - Modify: `graphiti_core/driver/postgres_age/spike.py`
 - Modify: `tests/driver/test_postgres_age_spike.py`
 
-- [ ] **Step 1: Add failing edge and BFS test**
+- [x] **Step 1: Add failing edge and BFS test**
 
 Append to `tests/driver/test_postgres_age_spike.py`:
 
@@ -603,7 +603,7 @@ async def test_save_entity_edge_and_bfs_through_age_projection():
         await helper.close()
 ```
 
-- [ ] **Step 2: Run test and verify it fails**
+- [x] **Step 2: Run test and verify it fails**
 
 Run:
 
@@ -613,7 +613,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_save_entity_edge_and
 
 Expected: FAIL with `AttributeError` for `save_entity_edge`.
 
-- [ ] **Step 3: Implement edge save, edge get, and BFS**
+- [x] **Step 3: Implement edge save, edge get, and BFS**
 
 Add these methods to `PostgresAgeSpike`:
 
@@ -697,7 +697,7 @@ Add these methods to `PostgresAgeSpike`:
         return [self.decode_agtype_scalar(row['uuid']) for row in rows]
 ```
 
-- [ ] **Step 4: Run test and verify it passes**
+- [x] **Step 4: Run test and verify it passes**
 
 Run:
 
@@ -707,7 +707,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_save_entity_edge_and
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -722,7 +722,7 @@ git commit -m "validate postgres age spike projection bfs"
 - Modify: `graphiti_core/driver/postgres_age/spike.py`
 - Modify: `tests/driver/test_postgres_age_spike.py`
 
-- [ ] **Step 1: Add failing search test**
+- [x] **Step 1: Add failing search test**
 
 Append to `tests/driver/test_postgres_age_spike.py`:
 
@@ -746,7 +746,7 @@ async def test_vector_and_fulltext_search_use_canonical_tables():
         await helper.close()
 ```
 
-- [ ] **Step 2: Run search test and verify it fails**
+- [x] **Step 2: Run search test and verify it fails**
 
 Run:
 
@@ -756,7 +756,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_vector_and_fulltext_
 
 Expected: FAIL with `AttributeError` for `vector_search_entity_uuids`.
 
-- [ ] **Step 3: Implement vector and full-text search**
+- [x] **Step 3: Implement vector and full-text search**
 
 Add these methods to `PostgresAgeSpike`:
 
@@ -788,7 +788,7 @@ Add these methods to `PostgresAgeSpike`:
         return [row['uuid'] for row in rows]
 ```
 
-- [ ] **Step 4: Run search test and verify it passes**
+- [x] **Step 4: Run search test and verify it passes**
 
 Run:
 
@@ -798,7 +798,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_vector_and_fulltext_
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -813,7 +813,7 @@ git commit -m "validate postgres age spike canonical search"
 - Modify: `graphiti_core/driver/postgres_age/spike.py`
 - Modify: `tests/driver/test_postgres_age_spike.py`
 
-- [ ] **Step 1: Add failing rollback test**
+- [x] **Step 1: Add failing rollback test**
 
 Append to `tests/driver/test_postgres_age_spike.py`:
 
@@ -844,7 +844,7 @@ async def test_failed_projection_write_rolls_back_canonical_write():
         await helper.close()
 ```
 
-- [ ] **Step 2: Run rollback test and verify it fails**
+- [x] **Step 2: Run rollback test and verify it fails**
 
 Run:
 
@@ -854,7 +854,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_failed_projection_wr
 
 Expected: FAIL with `AttributeError` for `save_entity_node_then_fail_projection`.
 
-- [ ] **Step 3: Implement rollback helper**
+- [x] **Step 3: Implement rollback helper**
 
 Add this method to `PostgresAgeSpike`:
 
@@ -894,7 +894,7 @@ Add this method to `PostgresAgeSpike`:
                 raise
 ```
 
-- [ ] **Step 4: Run rollback test and verify it passes**
+- [x] **Step 4: Run rollback test and verify it passes**
 
 Run:
 
@@ -904,7 +904,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py::test_failed_projection_wr
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -919,7 +919,7 @@ git commit -m "validate postgres age spike rollback"
 - Modify: `docs/superpowers/specs/2026-05-25-postgres-age-pgvector-design.md`
 - Modify: `docs/superpowers/plans/2026-05-25-postgres-age-pgvector-spike.md`
 
-- [ ] **Step 1: Run the full spike tests**
+- [x] **Step 1: Run the full spike tests**
 
 Run:
 
@@ -929,7 +929,7 @@ uv run pytest tests/driver/test_postgres_age_spike.py -q
 
 Expected: all spike tests pass.
 
-- [ ] **Step 2: Run focused smoke tests**
+- [x] **Step 2: Run focused smoke tests**
 
 Run:
 
@@ -939,7 +939,7 @@ uv run pytest tests/helpers_test.py tests/utils/search/test_search_security.py t
 
 Expected: all selected tests pass.
 
-- [ ] **Step 3: Append spike outcome to the design doc**
+- [x] **Step 3: Append spike outcome to the design doc**
 
 Append this section to `docs/superpowers/specs/2026-05-25-postgres-age-pgvector-design.md`:
 
@@ -954,12 +954,12 @@ Cypher literal construction with a hardened query builder or prepared-statement
 parameter strategy.
 ```
 
-- [ ] **Step 4: Mark this plan as completed**
+- [x] **Step 4: Mark this plan as completed**
 
 Update each checklist item in this file from `[ ]` to `[x]` only after the
 corresponding command or edit has completed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 

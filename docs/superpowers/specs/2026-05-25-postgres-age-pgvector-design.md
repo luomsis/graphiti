@@ -346,3 +346,34 @@ Full backend tests:
 - Keep old drivers.
 - Develop on an isolated branch/worktree.
 - Start with the spike-first path before full backend implementation.
+
+## Spike Outcome
+
+The spike validated that PostgreSQL canonical tables, pgvector similarity search,
+PostgreSQL full-text search, and AGE traversal can run in one PostgreSQL service.
+The full backend should keep AGE as a projection layer and use canonical tables
+for CRUD and retrieval.
+
+Validated behaviors:
+
+- Bootstrap creates AGE, pgvector, pg_trgm, canonical node and edge tables,
+  generated `tsvector` columns, vector indexes, and an AGE graph.
+- Entity and edge writes upsert canonical PostgreSQL rows and then refresh AGE
+  projection data in the same transaction.
+- AGE BFS traverses the projection and returns UUIDs that can be hydrated from
+  canonical tables.
+- pgvector and full-text search query canonical tables directly and still work
+  after the AGE graph projection is dropped.
+- A projection failure rolls back the canonical write when both actions share
+  the same transaction body.
+
+Implementation notes for the full backend:
+
+- Replace spike-only Cypher literal construction with a hardened query builder
+  or prepared-statement parameter strategy wherever AGE allows it.
+- Make vector dimensions configurable instead of using the spike's `vector(3)`.
+- Keep integration tests marked as `integration`; shared spike database tests
+  used a PostgreSQL advisory lock to avoid xdist races on fixed canonical table
+  names.
+- Keep projection refresh idempotent: edge endpoint updates must delete stale AGE
+  relationships for the same UUID before creating the current relationship.
