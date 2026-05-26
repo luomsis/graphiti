@@ -7,6 +7,11 @@ from typing import Any
 
 from graphiti_core.driver.driver import GraphDriver, GraphDriverSession, GraphProvider
 from graphiti_core.driver.postgres_age.deps import import_postgres_age_dependencies
+from graphiti_core.driver.postgres_age.schema import (
+    drop_age_graph,
+    drop_canonical_tables,
+    rebuild_schema,
+)
 from graphiti_core.driver.query_executor import Transaction
 
 PostgresAgeResult = tuple[list[dict[str, Any]], None, list[str]]
@@ -55,7 +60,7 @@ class PostgresAgeDriver(GraphDriver):
         await self._deps.register_vector_async(conn)
         await conn.execute("LOAD 'age'")
         await conn.execute(
-            self._deps.sql.SQL('SET search_path = {}, ag_catalog, "$user"').format(
+            self._deps.sql.SQL('SET search_path = {}, ag_catalog, "$user", public').format(
                 self._deps.sql.Identifier(self.schema)
             )
         )
@@ -102,10 +107,40 @@ class PostgresAgeDriver(GraphDriver):
         self._closed = True
 
     async def delete_all_indexes(self) -> None:
-        raise NotImplementedError()
+        await self._ensure_open()
+        async with self._pool.connection() as conn:
+            try:
+                await rebuild_schema(
+                    conn,
+                    self._deps,
+                    self.schema,
+                    self.graph_name,
+                    self.embedding_dimension,
+                    delete_existing=False,
+                )
+                await drop_age_graph(conn, self.graph_name)
+                await drop_canonical_tables(conn, self._deps, self.schema)
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
 
     async def build_indices_and_constraints(self, delete_existing: bool = False) -> None:
-        raise NotImplementedError()
+        await self._ensure_open()
+        async with self._pool.connection() as conn:
+            try:
+                await rebuild_schema(
+                    conn,
+                    self._deps,
+                    self.schema,
+                    self.graph_name,
+                    self.embedding_dimension,
+                    delete_existing=delete_existing,
+                )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
 
 
 class PostgresAgeTransaction(Transaction):
