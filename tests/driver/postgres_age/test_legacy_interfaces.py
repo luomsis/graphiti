@@ -11,6 +11,7 @@ from graphiti_core.search.search_utils import (
     node_distance_reranker,
     node_fulltext_search,
 )
+from graphiti_core.utils.bulk_utils import add_nodes_and_edges_bulk
 
 CREATED_AT = datetime(2026, 5, 26, 10, 0, tzinfo=timezone.utc)
 VALID_AT = datetime(2026, 5, 26, 9, 0, tzinfo=timezone.utc)
@@ -186,3 +187,75 @@ async def test_postgres_age_legacy_interface_dispatches_direct_saga_node_delete(
 
     with pytest.raises(NodeNotFoundError):
         await SagaNode.get_by_uuid(postgres_age_driver, 'delete-saga')
+
+
+@pytest.mark.integration
+async def test_postgres_age_legacy_interfaces_support_bulk_utility(
+    postgres_age_driver,
+    mock_embedder,
+):
+    await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+
+    episode = EpisodicNode(
+        uuid='bulk-episode',
+        name='Bulk episode',
+        group_id='legacy-bulk',
+        source=EpisodeType.message,
+        source_description='chat',
+        content='Alice mentioned Bob',
+        valid_at=VALID_AT,
+        created_at=CREATED_AT,
+    )
+    alice = EntityNode(
+        uuid='bulk-alice',
+        name='Alice',
+        group_id='legacy-bulk',
+        labels=['Person'],
+        summary='Engineer',
+        created_at=CREATED_AT,
+    )
+    bob = EntityNode(
+        uuid='bulk-bob',
+        name='Bob',
+        group_id='legacy-bulk',
+        labels=['Person'],
+        summary='Manager',
+        created_at=CREATED_AT,
+    )
+    episodic_edge = EpisodicEdge(
+        uuid='bulk-mention',
+        group_id='legacy-bulk',
+        source_node_uuid='bulk-episode',
+        target_node_uuid='bulk-alice',
+        created_at=CREATED_AT,
+    )
+    entity_edge = EntityEdge(
+        uuid='bulk-edge',
+        group_id='legacy-bulk',
+        source_node_uuid='bulk-alice',
+        target_node_uuid='bulk-bob',
+        name='KNOWS',
+        fact='Alice knows Bob',
+        created_at=CREATED_AT,
+        episodes=['bulk-episode'],
+    )
+
+    await add_nodes_and_edges_bulk(
+        postgres_age_driver,
+        [episode],
+        [episodic_edge],
+        [alice, bob],
+        [entity_edge],
+        mock_embedder,
+    )
+
+    loaded_nodes = await EntityNode.get_by_uuids(postgres_age_driver, ['bulk-alice', 'bulk-bob'])
+    loaded_edge = await EntityEdge.get_by_uuid(postgres_age_driver, 'bulk-edge')
+    loaded_episode = await EpisodicNode.get_by_uuid(postgres_age_driver, 'bulk-episode')
+    loaded_mention = await EpisodicEdge.get_by_uuid(postgres_age_driver, 'bulk-mention')
+
+    assert {node.uuid for node in loaded_nodes} == {'bulk-alice', 'bulk-bob'}
+    assert loaded_edge.source_node_uuid == 'bulk-alice'
+    assert loaded_edge.fact_embedding is not None
+    assert loaded_episode.uuid == 'bulk-episode'
+    assert loaded_mention.target_node_uuid == 'bulk-alice'
