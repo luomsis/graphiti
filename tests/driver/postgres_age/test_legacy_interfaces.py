@@ -1,10 +1,16 @@
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from pydantic import BaseModel
 
+from graphiti_core.cross_encoder.client import CrossEncoderClient
 from graphiti_core.edges import CommunityEdge, EntityEdge, EpisodicEdge
 from graphiti_core.errors import EdgeNotFoundError, NodeNotFoundError
+from graphiti_core.graphiti import Graphiti
+from graphiti_core.llm_client import LLMClient, LLMConfig
 from graphiti_core.nodes import CommunityNode, EntityNode, EpisodeType, EpisodicNode, SagaNode
+from graphiti_core.prompts.models import Message
 from graphiti_core.search.search_filters import SearchFilters
 from graphiti_core.search.search_utils import (
     episode_mentions_reranker,
@@ -15,6 +21,22 @@ from graphiti_core.utils.bulk_utils import add_nodes_and_edges_bulk
 
 CREATED_AT = datetime(2026, 5, 26, 10, 0, tzinfo=timezone.utc)
 VALID_AT = datetime(2026, 5, 26, 9, 0, tzinfo=timezone.utc)
+
+
+class StubLLMClient(LLMClient):
+    async def _generate_response(
+        self,
+        messages: list[Message],
+        response_model: type[BaseModel] | None = None,
+        max_tokens: int = 1024,
+        model_size=None,
+    ) -> dict:
+        return {'duplicate_facts': [], 'invalidate_facts': []}
+
+
+class StubCrossEncoderClient(CrossEncoderClient):
+    async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
+        return [(passage, 0.0) for passage in passages]
 
 
 @pytest.mark.integration
@@ -259,3 +281,67 @@ async def test_postgres_age_legacy_interfaces_support_bulk_utility(
     assert loaded_edge.fact_embedding is not None
     assert loaded_episode.uuid == 'bulk-episode'
     assert loaded_mention.target_node_uuid == 'bulk-alice'
+
+
+@pytest.mark.integration
+async def test_postgres_age_driver_supports_graphiti_add_triplet(
+    postgres_age_driver,
+    mock_embedder,
+):
+    await postgres_age_driver.build_indices_and_constraints(delete_existing=True)
+    mock_embedder.create_batch = AsyncMock(
+        side_effect=lambda texts: [[1.0] + [0.0] * 383 for _ in texts]
+    )
+
+    graphiti = Graphiti(
+        graph_driver=postgres_age_driver,
+        llm_client=StubLLMClient(LLMConfig(model='stub', small_model='stub')),
+        embedder=mock_embedder,
+        cross_encoder=StubCrossEncoderClient(),
+    )
+    source = EntityNode(
+        uuid='triplet-alice',
+        name='Alice',
+        group_id='legacy-triplet',
+        labels=['Person'],
+        summary='Engineer',
+        created_at=CREATED_AT,
+    )
+    target = EntityNode(
+        uuid='triplet-bob',
+        name='Bob',
+        group_id='legacy-triplet',
+        labels=['Person'],
+        summary='Manager',
+        created_at=CREATED_AT,
+    )
+    await source.save(postgres_age_driver)
+    await target.save(postgres_age_driver)
+
+    edge = EntityEdge(
+        uuid='triplet-edge',
+        source_node_uuid=source.uuid,
+        target_node_uuid=target.uuid,
+        name='KNOWS',
+        fact='Alice knows Bob',
+        group_id='legacy-triplet',
+        created_at=CREATED_AT,
+        valid_at=VALID_AT,
+    )
+
+    with (
+        patch('graphiti_core.graphiti.search', new=AsyncMock(return_value=Mock(edges=[]))),
+        patch(
+            'graphiti_core.graphiti.resolve_extracted_edge',
+            new=AsyncMock(return_value=(edge, [], None)),
+        ),
+    ):
+        result = await graphiti.add_triplet(source, edge, target)
+
+    loaded_edge = await EntityEdge.get_by_uuid(postgres_age_driver, 'triplet-edge')
+
+    assert [node.uuid for node in result.nodes] == ['triplet-alice', 'triplet-bob']
+    assert [saved_edge.uuid for saved_edge in result.edges] == ['triplet-edge']
+    assert loaded_edge.source_node_uuid == 'triplet-alice'
+    assert loaded_edge.target_node_uuid == 'triplet-bob'
+    assert loaded_edge.fact_embedding is not None
