@@ -10,6 +10,62 @@
 
 ---
 
+## Progress Update - 2026-05-27
+
+**Status:** paused after completing the core-library path for `PostgresAgeDriver` on branch `codex/postgres-age-pgvector`.
+
+**Selected architecture:**方案 B. PostgreSQL ordinary tables are the canonical source of truth. Apache AGE is a rebuildable graph projection, and pgvector/PostgreSQL full-text search operate against canonical tables. Existing Neo4j, FalkorDB, Kuzu, and Neptune drivers remain in place.
+
+**Completed commits in this worktree:**
+
+- `bd30eda add postgres age community and saga node ops`
+- `a696470 add postgres age edge ops projection`
+- `bc4fa61 add postgres age graph maintenance ops`
+- `5f1be26 add postgres age search ops`
+- `50f048d add postgres age legacy interfaces`
+- `c7b3c9d cover postgres age bulk legacy path`
+- `d3e5933 cover postgres age graphiti triplet path`
+
+**Implemented coverage:**
+
+- `PostgresAgeDriver` package export, provider enum, optional dependency guard, connection/session/transaction wrappers, schema bootstrap, AGE graph creation, and query result shape.
+- Canonical PostgreSQL schema for entity, episodic, community, saga nodes and entity, episodic, community, has-episode, next-episode edges.
+- Serialization and hydration for all canonical model families.
+- Node and edge operation objects for all current operation families.
+- Projection writes into Apache AGE for nodes and edges, plus rollback coverage when projection writes fail.
+- Graph maintenance operations including projection rebuild, group-aware clear-data, community helpers, mentioned-node lookup, and canonical community membership helpers.
+- Search operations backed by canonical tables: FTS, pgvector similarity, bounded BFS, node-distance reranking, and episode-mentions reranking.
+- Legacy `GraphOperationsInterface` and `SearchInterface` adapters so existing high-level model methods and `search_utils` routes do not fall back to provider-specific Neo4j/Falkor/Kuzu Cypher.
+- LLM-free high-level smoke coverage for `add_nodes_and_edges_bulk()` and `Graphiti.add_triplet()` using stub clients. No real LLM provider was invoked.
+
+**Latest local verification before pause:**
+
+```bash
+uv run ruff check graphiti_core/driver/postgres_age tests/driver/postgres_age/test_legacy_interfaces.py
+uv run pyright graphiti_core/driver/postgres_age
+uv run pytest tests/driver/postgres_age/test_imports.py tests/driver/postgres_age/test_driver_connection.py tests/driver/postgres_age/test_schema.py tests/driver/postgres_age/test_records.py tests/driver/postgres_age/test_node_ops.py tests/driver/postgres_age/test_edge_ops.py tests/driver/postgres_age/test_graph_ops.py tests/driver/postgres_age/test_search_ops.py tests/driver/postgres_age/test_legacy_interfaces.py -q -m "integration or not integration"
+```
+
+Result: ruff passed, pyright passed, Postgres AGE driver suite passed with `52 passed, 1 warning`.
+
+**Review status:**
+
+- Spec review for search ops approved after bounded BFS and graph-distance reranker fixes.
+- Code-quality review for search ops approved after edge filters, `node_labels`, BFS, and reranker fixes.
+- Code-quality review for legacy adapters approved after fixing base `Node.delete()` / `Edge.delete()` dispatch, including `SagaNode`.
+- A later spec-review response for the adapter timed out twice; adapter behavior is covered by the integration suite above.
+
+**Current pause point:**
+
+Stop here before opening new implementation tasks. The next reasonable step is not more driver internals by default, but a deliberate decision about integration scope:
+
+- Option A: add opt-in test helper wiring in `tests/helpers_test.py` behind `ENABLE_POSTGRES_AGE`.
+- Option B: add user-facing docs/example showing `Graphiti(graph_driver=PostgresAgeDriver(...))`.
+- Option C: start server/MCP factory wiring as a separate milestone.
+- Option D: attempt a real `Graphiti.add_episode()` integration test. If this needs a live LLM provider and the current provider configuration is missing or unusable, ask the user for LLM provider configuration before running it.
+
+---
+
 ## File Structure
 
 Create these files under `graphiti_core/driver/postgres_age/`:
