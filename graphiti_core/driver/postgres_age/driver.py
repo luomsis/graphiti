@@ -12,6 +12,7 @@ from graphiti_core.driver.operations.entity_edge_ops import EntityEdgeOperations
 from graphiti_core.driver.operations.entity_node_ops import EntityNodeOperations
 from graphiti_core.driver.operations.episode_node_ops import EpisodeNodeOperations
 from graphiti_core.driver.operations.episodic_edge_ops import EpisodicEdgeOperations
+from graphiti_core.driver.operations.graph_ops import GraphMaintenanceOperations
 from graphiti_core.driver.operations.has_episode_edge_ops import HasEpisodeEdgeOperations
 from graphiti_core.driver.operations.next_episode_edge_ops import NextEpisodeEdgeOperations
 from graphiti_core.driver.postgres_age.deps import import_postgres_age_dependencies
@@ -32,6 +33,9 @@ from graphiti_core.driver.postgres_age.operations.episode_node_ops import (
 )
 from graphiti_core.driver.postgres_age.operations.episodic_edge_ops import (
     PostgresAgeEpisodicEdgeOperations,
+)
+from graphiti_core.driver.postgres_age.operations.graph_ops import (
+    PostgresAgeGraphMaintenanceOperations,
 )
 from graphiti_core.driver.postgres_age.operations.has_episode_edge_ops import (
     PostgresAgeHasEpisodeEdgeOperations,
@@ -89,6 +93,7 @@ class PostgresAgeDriver(GraphDriver):
         self._community_edge_ops = PostgresAgeCommunityEdgeOperations()
         self._has_episode_edge_ops = PostgresAgeHasEpisodeEdgeOperations()
         self._next_episode_edge_ops = PostgresAgeNextEpisodeEdgeOperations()
+        self._graph_ops = PostgresAgeGraphMaintenanceOperations()
 
     async def _ensure_open(self) -> None:
         if self._closed:
@@ -224,6 +229,10 @@ class PostgresAgeDriver(GraphDriver):
     @property
     def next_episode_edge_ops(self) -> NextEpisodeEdgeOperations:
         return self._next_episode_edge_ops
+
+    @property
+    def graph_ops(self) -> GraphMaintenanceOperations:
+        return self._graph_ops
 
 
 class PostgresAgeTransaction(Transaction):
