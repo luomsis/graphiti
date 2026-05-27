@@ -431,5 +431,36 @@ class DatabaseDriverFactory:
                     'database': falkor_config.database,
                 }
 
+            case 'postgres_age':
+                try:
+                    from graphiti_core.driver.postgres_age import PostgresAgeDriver
+                except ImportError:
+                    raise ValueError(
+                        'PostgresAgeDriver not available. Install with: pip install graphiti-core[postgres-age]'
+                    )
+
+                import os
+
+                if config.providers.postgres_age:
+                    pg_config = config.providers.postgres_age
+                else:
+                    from config.schema import PostgresAgeProviderConfig
+
+                    pg_config = PostgresAgeProviderConfig()
+
+                dsn = os.environ.get('POSTGRES_AGE_DSN', pg_config.dsn)
+                graph_name = os.environ.get('POSTGRES_AGE_GRAPH_NAME', pg_config.graph_name)
+                embedding_dim = os.environ.get(
+                    'POSTGRES_AGE_EMBEDDING_DIMENSION',
+                    str(pg_config.embedding_dimension or 384),
+                )
+
+                return {
+                    'driver': 'postgres_age',
+                    'dsn': dsn,
+                    'graph_name': graph_name,
+                    'embedding_dimension': int(embedding_dim),
+                }
+
             case _:
                 raise ValueError(f'Unsupported Database provider: {provider}')

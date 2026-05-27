@@ -8,15 +8,26 @@ from graphiti_core.errors import EdgeNotFoundError, GroupsEdgesNotFoundError, No
 from graphiti_core.llm_client import LLMClient  # type: ignore
 from graphiti_core.nodes import EntityNode, EpisodicNode  # type: ignore
 
-from graph_service.config import ZepEnvDep
+from graph_service.config import DatabaseProvider, ZepEnvDep
 from graph_service.dto import FactResult
 
 logger = logging.getLogger(__name__)
 
 
 class ZepGraphiti(Graphiti):
-    def __init__(self, uri: str, user: str, password: str, llm_client: LLMClient | None = None):
-        super().__init__(uri, user, password, llm_client)
+    def __init__(
+        self,
+        uri: str | None = None,
+        user: str | None = None,
+        password: str | None = None,
+        llm_client: LLMClient | None = None,
+        graph_driver=None,
+    ):
+        # Support both Neo4j and custom graph_driver
+        if graph_driver is not None:
+            super().__init__(graph_driver=graph_driver, llm_client=llm_client)
+        else:
+            super().__init__(uri, user, password, llm_client)
 
     async def save_entity_node(self, name: str, uuid: str, group_id: str, summary: str = ''):
         new_node = EntityNode(
@@ -72,11 +83,22 @@ class ZepGraphiti(Graphiti):
 
 
 async def get_graphiti(settings: ZepEnvDep):
-    client = ZepGraphiti(
-        uri=settings.neo4j_uri,
-        user=settings.neo4j_user,
-        password=settings.neo4j_password,
-    )
+    if settings.database_provider == DatabaseProvider.POSTGRES_AGE:
+        from graphiti_core.driver.postgres_age import PostgresAgeDriver
+
+        driver = PostgresAgeDriver(
+            dsn=settings.postgres_age_dsn or 'postgresql://graphiti:graphiti@localhost:55432/graphiti',
+            graph_name=settings.postgres_age_graph_name or 'graphiti',
+            embedding_dimension=settings.postgres_age_embedding_dimension,
+        )
+        client = ZepGraphiti(graph_driver=driver)
+    else:
+        client = ZepGraphiti(
+            uri=settings.neo4j_uri,
+            user=settings.neo4j_user,
+            password=settings.neo4j_password,
+        )
+
     if settings.openai_base_url is not None:
         client.llm_client.config.base_url = settings.openai_base_url
     if settings.openai_api_key is not None:
@@ -91,11 +113,21 @@ async def get_graphiti(settings: ZepEnvDep):
 
 
 async def initialize_graphiti(settings: ZepEnvDep):
-    client = ZepGraphiti(
-        uri=settings.neo4j_uri,
-        user=settings.neo4j_user,
-        password=settings.neo4j_password,
-    )
+    if settings.database_provider == DatabaseProvider.POSTGRES_AGE:
+        from graphiti_core.driver.postgres_age import PostgresAgeDriver
+
+        driver = PostgresAgeDriver(
+            dsn=settings.postgres_age_dsn or 'postgresql://graphiti:graphiti@localhost:55432/graphiti',
+            graph_name=settings.postgres_age_graph_name or 'graphiti',
+            embedding_dimension=settings.postgres_age_embedding_dimension,
+        )
+        client = ZepGraphiti(graph_driver=driver)
+    else:
+        client = ZepGraphiti(
+            uri=settings.neo4j_uri,
+            user=settings.neo4j_user,
+            password=settings.neo4j_password,
+        )
     await client.build_indices_and_constraints()
 
 

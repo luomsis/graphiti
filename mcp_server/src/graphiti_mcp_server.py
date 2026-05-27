@@ -211,7 +211,8 @@ class GraphitiService:
 
             # Initialize Graphiti client with appropriate driver
             try:
-                if self.config.database.provider.lower() == 'falkordb':
+                db_provider = self.config.database.provider.lower()
+                if db_provider == 'falkordb':
                     # For FalkorDB, create a FalkorDriver instance directly
                     from graphiti_core.driver.falkordb_driver import FalkorDriver
 
@@ -224,6 +225,22 @@ class GraphitiService:
 
                     self.client = Graphiti(
                         graph_driver=falkor_driver,
+                        llm_client=llm_client,
+                        embedder=embedder_client,
+                        max_coroutines=self.semaphore_limit,
+                    )
+                elif db_provider == 'postgres_age':
+                    # For Postgres AGE, create a PostgresAgeDriver instance
+                    from graphiti_core.driver.postgres_age import PostgresAgeDriver
+
+                    postgres_driver = PostgresAgeDriver(
+                        dsn=db_config['dsn'],
+                        graph_name=db_config['graph_name'],
+                        embedding_dimension=db_config['embedding_dimension'],
+                    )
+
+                    self.client = Graphiti(
+                        graph_driver=postgres_driver,
                         llm_client=llm_client,
                         embedder=embedder_client,
                         max_coroutines=self.semaphore_limit,
@@ -264,6 +281,17 @@ class GraphitiService:
                             f'  - Using Docker Compose: cd mcp_server && docker compose -f docker/docker-compose-neo4j.yml up\n'
                             f'  - Or install Neo4j Desktop from: https://neo4j.com/download/\n'
                             f'  - Or run Neo4j manually: docker run -p 7474:7474 -p 7687:7687 neo4j:latest\n\n'
+                            f'{"=" * 70}\n'
+                        ) from db_error
+                    elif db_provider.lower() == 'postgres_age':
+                        raise RuntimeError(
+                            f'\n{"=" * 70}\n'
+                            f'Database Connection Error: PostgreSQL with AGE is not running\n'
+                            f'{"=" * 70}\n\n'
+                            f'PostgreSQL at {db_config.get("dsn", "unknown")} is not accessible.\n\n'
+                            f'To start PostgreSQL with AGE:\n'
+                            f'  - Using Docker Compose: cd mcp_server && docker compose -f docker/docker-compose-postgres-age.yml up\n'
+                            f'  - Or check the docker-compose.postgres-age.yml in the project root\n\n'
                             f'{"=" * 70}\n'
                         ) from db_error
                     else:

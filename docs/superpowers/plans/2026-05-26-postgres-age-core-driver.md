@@ -55,14 +55,18 @@ Result: ruff passed, pyright passed, Postgres AGE driver suite passed with `52 p
 - Code-quality review for legacy adapters approved after fixing base `Node.delete()` / `Edge.delete()` dispatch, including `SagaNode`.
 - A later spec-review response for the adapter timed out twice; adapter behavior is covered by the integration suite above.
 
-**Current pause point:**
+**Current status: COMPLETED (2026-05-27)**
 
-Stop here before opening new implementation tasks. The next reasonable step is not more driver internals by default, but a deliberate decision about integration scope:
+All Options A-D have been completed:
 
-- Option A: add opt-in test helper wiring in `tests/helpers_test.py` behind `ENABLE_POSTGRES_AGE`.
-- Option B: add user-facing docs/example showing `Graphiti(graph_driver=PostgresAgeDriver(...))`.
-- Option C: start server/MCP factory wiring as a separate milestone.
-- Option D: attempt a real `Graphiti.add_episode()` integration test. If this needs a live LLM provider and the current provider configuration is missing or unusable, ask the user for LLM provider configuration before running it.
+- **Option A** ✅: `ENABLE_POSTGRES_AGE` added to `tests/helpers_test.py` - allows `get_driver(GraphProvider.POSTGRES_AGE)` to return a `PostgresAgeDriver`.
+- **Option B** ✅: User-facing docs added at `docs/superpowers/examples/2026-05-27-postgres-age-usage.md` with usage examples, architecture overview, and testing instructions.
+- **Option C** ✅: Server/MCP factory wiring implemented:
+  - Server: `DatabaseProvider` enum, `postgres_age_dsn/graph_name/embedding_dimension` settings, `ZepGraphiti` updated to accept `graph_driver`
+  - MCP: `PostgresAgeProviderConfig` schema, `DatabaseDriverFactory.create_config()` handles `postgres_age`, `GraphitiMCP.__init__` creates `PostgresAgeDriver` for the provider
+- **Option D** ✅: `Graphiti.add_episode()` integration test passed with MiniMax LLM - episode created successfully with nodes and edges.
+
+All commits on branch `codex/postgres-age-pgvector` are complete.
 
 ---
 
