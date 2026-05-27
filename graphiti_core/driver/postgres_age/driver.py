@@ -17,6 +17,10 @@ from graphiti_core.driver.operations.has_episode_edge_ops import HasEpisodeEdgeO
 from graphiti_core.driver.operations.next_episode_edge_ops import NextEpisodeEdgeOperations
 from graphiti_core.driver.operations.search_ops import SearchOperations
 from graphiti_core.driver.postgres_age.deps import import_postgres_age_dependencies
+from graphiti_core.driver.postgres_age.interfaces import (
+    PostgresAgeGraphOperationsInterface,
+    PostgresAgeSearchInterface,
+)
 from graphiti_core.driver.postgres_age.operations.community_edge_ops import (
     PostgresAgeCommunityEdgeOperations,
 )
@@ -97,6 +101,8 @@ class PostgresAgeDriver(GraphDriver):
         self._next_episode_edge_ops = PostgresAgeNextEpisodeEdgeOperations()
         self._graph_ops = PostgresAgeGraphMaintenanceOperations()
         self._search_ops = PostgresAgeSearchOperations()
+        self.graph_operations_interface = PostgresAgeGraphOperationsInterface()
+        self.search_interface = PostgresAgeSearchInterface()
 
     async def _ensure_open(self) -> None:
         if self._closed:
