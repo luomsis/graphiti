@@ -17,76 +17,33 @@ services:
       timeout: 5s
       retries: 3
     depends_on:
-      neo4j:
+      postgres-age:
         condition: service_healthy
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - NEO4J_URI=bolt://neo4j:${NEO4J_PORT:-7687}
-      - NEO4J_USER=${NEO4J_USER:-neo4j}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+      - POSTGRES_AGE_DSN=postgresql://graphiti:graphiti@postgres-age:5432/graphiti
+      - POSTGRES_AGE_GRAPH_NAME=graphiti
+      - POSTGRES_AGE_EMBEDDING_DIMENSION=${POSTGRES_AGE_EMBEDDING_DIMENSION:-384}
       - PORT=8000
-      - db_backend=neo4j
-  neo4j:
-    image: neo4j:5.26.2
-    profiles: [""]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget -qO- http://localhost:${NEO4J_PORT:-7474} || exit 1",
-        ]
-      interval: 1s
-      timeout: 10s
-      retries: 10
-      start_period: 3s
-    ports:
-      - "7474:7474" # HTTP
-      - "${NEO4J_PORT:-7687}:${NEO4J_PORT:-7687}" # Bolt
-    volumes:
-      - neo4j_data:/data
-    environment:
-      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password}
+      - db_backend=postgres_age
 
-  falkordb:
-    image: falkordb/falkordb:latest
-    profiles: ["falkordb"]
+  postgres-age:
+    image: docker-postgres-age:latest
+    profiles: [""]
     ports:
-      - "6379:6379"
+      - "${POSTGRES_AGE_PORT:-55432}:5432"
+    environment:
+      - POSTGRES_USER=graphiti
+      - POSTGRES_PASSWORD=graphiti
+      - POSTGRES_DB=graphiti
     volumes:
-      - falkordb_data:/data
-    environment:
-      - FALKORDB_ARGS=--port 6379 --cluster-enabled no
+      - postgres_age_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
-      interval: 1s
-      timeout: 10s
-      retries: 10
-      start_period: 3s
-  graph-falkordb:
-    build:
-      args:
-        INSTALL_FALKORDB: "true"
-      context: .
-    profiles: ["falkordb"]
-    ports:
-      - "8001:8001"
-    depends_on:
-      falkordb:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthcheck')"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U graphiti -d graphiti"]
+      interval: 2s
       timeout: 5s
-      retries: 3
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - FALKORDB_HOST=falkordb
-      - FALKORDB_PORT=6379
-      - FALKORDB_DATABASE=default_db
-      - GRAPHITI_BACKEND=falkordb
-      - PORT=8001
-      - db_backend=falkordb
+      retries: 30
+      start_period: 10s
 
 volumes:
-  neo4j_data:
-  falkordb_data:
+  postgres_age_data:
