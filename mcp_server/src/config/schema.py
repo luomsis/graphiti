@@ -210,7 +210,7 @@ class DatabaseProvidersConfig(BaseModel):
 class DatabaseConfig(BaseModel):
     """Database configuration."""
 
-    provider: str = Field(default='falkordb', description='Database provider')
+    provider: str = Field(default='postgres_age', description='Database provider')
     providers: DatabaseProvidersConfig = Field(default_factory=DatabaseProvidersConfig)
 
 

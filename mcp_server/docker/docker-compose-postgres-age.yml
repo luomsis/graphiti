@@ -24,11 +24,8 @@ services:
     # The Docker Hub image may lag behind the latest release.
     image: zepai/knowledge-graph-mcp:standalone
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.standalone
-    env_file:
-      - path: ../.env
-        required: false
+      context: ../..
+      dockerfile: mcp_server/docker/Dockerfile.standalone
     depends_on:
       postgres-age:
         condition: service_healthy
@@ -43,8 +40,10 @@ services:
       - SEMAPHORE_LIMIT=${SEMAPHORE_LIMIT:-10}
       - CONFIG_PATH=/app/mcp/config/config.yaml
       - PATH=/root/.local/bin:${PATH}
+      # LLM configuration (set in .env file or here)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     volumes:
-      - ../config/config-docker-postgres-age.yaml:/app/mcp/config/config.yaml:ro
+      - ./mcp_server/config/config-docker-postgres-age.yaml:/app/mcp/config/config.yaml:ro
     ports:
       - "8000:8000" # Expose the MCP server via HTTP transport
     command: ["uv", "run", "main.py"]
