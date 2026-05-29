@@ -17,9 +17,12 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(None)
     openai_base_url: str | None = Field(None)
     openai_model_name: str | None = Field(None)
+    use_generic_client: bool = Field(default=False, description='Use OpenAIGenericClient for providers without /v1/responses (e.g. MiniMax)')
 
     # Embedder configuration
-    embedding_model_name: str | None = Field(None)
+    embedder_provider: str = Field(default='openai', description='Embedder provider: openai or sentence-transformers')
+    embedding_api_url: str | None = Field(None, description='Base URL for the embedding API (e.g. http://embedding-service:8080/v1)')
+    embedding_model_name: str = Field(default='all-MiniLM-L6-v2', description='Embedding model name')
 
     # Neo4j configuration (legacy)
     neo4j_uri: str | None = Field(None)

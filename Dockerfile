@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /app/.venv --clear && \
     . /app/.venv/bin/activate && \
     uv pip install --no-deps -e ./graphiti_core && \
-    uv pip install pydantic psycopg[binary,pool] pgvector openai neo4j tenacity numpy python-dotenv posthog sentence-transformers uvicorn fastapi httpx pydantic-settings --extra-index-url https://download.pytorch.org/whl/cpu
+    uv pip install pydantic psycopg[binary,pool] pgvector openai neo4j tenacity numpy python-dotenv posthog uvicorn fastapi httpx pydantic-settings
 
 # Change ownership to app user
 RUN chown -R app:app /app

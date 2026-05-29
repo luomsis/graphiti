@@ -17,6 +17,22 @@ services:
       retries: 30
       start_period: 10s
 
+  # Embedding service — OpenAI-compatible /v1/embeddings API
+  embedding-service:
+    build:
+      context: ./embedding_service
+    ports:
+      - "${EMBEDDING_PORT:-8080}:8080"
+    environment:
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-384}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthcheck')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # Mode 1: Server + postgres-age
   graph:
     profiles: ["server", "all"]
@@ -38,11 +54,16 @@ services:
     depends_on:
       postgres-age:
         condition: service_healthy
+      embedding-service:
+        condition: service_healthy
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-cp-p-VrckVTBayzd6jj5exz-n8tic3AyQUGedY-5dTOyXx3YjwkUl3kFdplVHsaGmy9buYVdUXCkBWgRnnrhUF6N-1H2aIY0BNYWTp-2MDgXqGEOHKO-nyYvHA}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.minimaxi.com/v1}
       - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-MiniMax-M2.7}
-      - EMBEDDER_PROVIDER=${EMBEDDER_PROVIDER:-sentence-transformers}
+      - USE_GENERIC_CLIENT=${USE_GENERIC_CLIENT:-true}
+      - EMBEDDER_PROVIDER=${EMBEDDER_PROVIDER:-openai}
+      - EMBEDDING_API_URL=http://embedding-service:8080/v1
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       - POSTGRES_AGE_DSN=postgresql://graphiti:graphiti@postgres-age:5432/graphiti
       - POSTGRES_AGE_GRAPH_NAME=graphiti
       - POSTGRES_AGE_EMBEDDING_DIMENSION=${POSTGRES_AGE_EMBEDDING_DIMENSION:-384}
@@ -57,6 +78,8 @@ services:
       dockerfile: mcp_server/docker/Dockerfile.standalone
     depends_on:
       postgres-age:
+        condition: service_healthy
+      embedding-service:
         condition: service_healthy
     environment:
       # Database configuration - use postgres_age provider
@@ -73,7 +96,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-cp-p-VrckVTBayzd6jj5exz-n8tic3AyQUGedY-5dTOyXx3YjwkUl3kFdplVHsaGmy9buYVdUXCkBWgRnnrhUF6N-1H2aIY0BNYWTp-2MDgXqGEOHKO-nyYvHA}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.minimaxi.com/v1}
       - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-MiniMax-M2.7}
-      - EMBEDDER_PROVIDER=${EMBEDDER_PROVIDER:-sentence-transformers}
+      - USE_GENERIC_CLIENT=${USE_GENERIC_CLIENT:-true}
+      # Embedding — use remote embedding service instead of in-process sentence-transformers
+      - EMBEDDING_API_URL=http://embedding-service:8080/v1
     volumes:
       - ./mcp_server/config/config-docker-postgres-age.yaml:/app/mcp/config/config.yaml:ro
       - mcp_logs:/var/log/graphiti
