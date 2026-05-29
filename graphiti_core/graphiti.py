@@ -230,7 +230,22 @@ class Graphiti:
         if embedder:
             self.embedder = embedder
         else:
-            self.embedder = OpenAIEmbedder()
+            embedder_provider = os.getenv('EMBEDDER_PROVIDER', 'openai')
+            if embedder_provider == 'sentence-transformers':
+                from graphiti_core.embedder.sentence_transformers import (
+                    SentenceTransformerEmbedder,
+                    SentenceTransformerEmbedderConfig,
+                )
+
+                embedding_dim = int(
+                    os.getenv('POSTGRES_AGE_EMBEDDING_DIMENSION', '384')
+                )
+                config = SentenceTransformerEmbedderConfig(
+                    embedding_dim=embedding_dim
+                )
+                self.embedder = SentenceTransformerEmbedder(config=config)
+            else:
+                self.embedder = OpenAIEmbedder()
         if cross_encoder:
             self.cross_encoder = cross_encoder
         else:

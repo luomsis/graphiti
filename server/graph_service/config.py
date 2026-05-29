@@ -13,16 +13,21 @@ class DatabaseProvider(str, Enum):
 
 
 class Settings(BaseSettings):
-    openai_api_key: str
+    # OpenAI-compatible LLM configuration (supports MiniMax and any OpenAI API compatible provider)
+    openai_api_key: str | None = Field(None)
     openai_base_url: str | None = Field(None)
-    model_name: str | None = Field(None)
+    openai_model_name: str | None = Field(None)
+
+    # Embedder configuration
     embedding_model_name: str | None = Field(None)
-    neo4j_uri: str
-    neo4j_user: str
-    neo4j_password: str
+
+    # Neo4j configuration (legacy)
+    neo4j_uri: str | None = Field(None)
+    neo4j_user: str | None = Field(None)
+    neo4j_password: str | None = Field(None)
 
     # Postgres AGE configuration (alternative to Neo4j)
-    database_provider: DatabaseProvider = Field(default=DatabaseProvider.NEO4J)
+    database_provider: DatabaseProvider = Field(default=DatabaseProvider.POSTGRES_AGE)
     postgres_age_dsn: str | None = Field(default=None)
     postgres_age_graph_name: str | None = Field(default=None)
     postgres_age_embedding_dimension: int = Field(default=384)

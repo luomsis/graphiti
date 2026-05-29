@@ -35,11 +35,12 @@ COPY pyproject.toml README.md ./graphiti_core/
 COPY graphiti_core /app/mcp/graphiti_core
 
 # Install graphiti-core from local path, then sync remaining dependencies
+# Note: sentence-transformers is CPU-only via pytorch+cpu index
 RUN uv venv /app/mcp/.venv && \
     . /app/mcp/.venv/bin/activate && \
     uv pip install --no-deps -e ./graphiti_core && \
-    rm -rf uv.lock && \
-    uv sync --no-group dev --extra providers --extra azure
+    uv sync --no-group dev && \
+    uv pip install pgvector>=0.3.6 psycopg[binary,pool]>=3.2.0
 
 # Set up environment to use the venv
 ENV VIRTUAL_ENV=/app/mcp/.venv

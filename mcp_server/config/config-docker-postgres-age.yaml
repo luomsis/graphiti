@@ -8,13 +8,13 @@ server:
 
 llm:
   provider: "openai"  # Options: openai, azure_openai, anthropic, gemini, groq
-  model: "gpt-4o-mini"
+  model: "MiniMax-M2.7"
   max_tokens: 4096
 
   providers:
     openai:
-      api_key: ${OPENAI_API_KEY}
-      api_url: ${OPENAI_API_URL:https://api.openai.com/v1}
+      api_key: ${OPENAI_API_KEY:-}
+      api_url: ${OPENAI_BASE_URL:-https://api.minimaxi.com/v1}
       organization_id: ${OPENAI_ORGANIZATION_ID:}
 
     azure_openai:
@@ -25,8 +25,8 @@ llm:
       use_azure_ad: ${USE_AZURE_AD:false}
 
     anthropic:
-      api_key: ${ANTHROPIC_API_KEY}
-      api_url: ${ANTHROPIC_API_URL:https://api.minimaxi.com/anthropic}
+      api_key: ${ANTHROPIC_API_KEY:-}
+      api_url: ${ANTHROPIC_API_URL:-https://api.minimaxi.com/anthropic}
       max_retries: 3
 
     gemini:
