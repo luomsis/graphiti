@@ -73,6 +73,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-cp-p-VrckVTBayzd6jj5exz-n8tic3AyQUGedY-5dTOyXx3YjwkUl3kFdplVHsaGmy9buYVdUXCkBWgRnnrhUF6N-1H2aIY0BNYWTp-2MDgXqGEOHKO-nyYvHA}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.minimaxi.com/v1}
       - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-MiniMax-M2.7}
+      - EMBEDDER_PROVIDER=${EMBEDDER_PROVIDER:-sentence-transformers}
     volumes:
       - ./mcp_server/config/config-docker-postgres-age.yaml:/app/mcp/config/config.yaml:ro
       - mcp_logs:/var/log/graphiti

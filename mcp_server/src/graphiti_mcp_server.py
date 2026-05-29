@@ -759,12 +759,22 @@ async def get_status() -> StatusResponse:
     try:
         client = await graphiti_service.get_client()
 
-        # Test database connection with a simple query
+        # Test database connection with provider-specific query
         async with client.driver.session() as session:
-            result = await session.run('MATCH (n) RETURN count(n) as count')
-            # Consume the result to verify query execution
-            if result:
-                _ = [record async for record in result]
+            db_provider = graphiti_service.config.database.provider.lower()
+            if db_provider == 'postgres_age':
+                # Use PostgreSQL syntax for postgres_age
+                # PostgresAgeDriver returns a list directly, not an async iterator
+                result = await session.run('SELECT 1 as test')
+                # Consume the result to verify query execution
+                if result:
+                    _ = [record for record in result]
+            else:
+                # Neo4j/FalkorDB use Cypher with async iteration
+                result = await session.run('MATCH (n) RETURN count(n) as count')
+                # Consume the result to verify query execution
+                if result:
+                    _ = [record async for record in result]
 
         # Use the provider from the service's config, not the global
         provider_name = graphiti_service.config.database.provider

@@ -18,6 +18,7 @@ except ImportError:
 from graphiti_core.embedder import EmbedderClient, OpenAIEmbedder
 from graphiti_core.llm_client import LLMClient, OpenAIClient
 from graphiti_core.llm_client.config import LLMConfig as GraphitiLLMConfig
+from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 
 # Try to import additional providers if available
 try:
@@ -119,13 +120,22 @@ class LLMClientFactory:
                 # Use the same model for both main and small model slots
                 small_model = config.model
 
+                # Resolve base_url from config
+                base_url = config.providers.openai.api_url
+
                 llm_config = CoreLLMConfig(
                     api_key=api_key,
+                    base_url=base_url,
                     model=config.model,
                     small_model=small_model,
                     temperature=config.temperature,
                     max_tokens=config.max_tokens,
                 )
+
+                # Use OpenAIGenericClient for providers that don't support /v1/responses
+                if config.use_generic_client:
+                    logger.info('Using OpenAIGenericClient (chat/completions only)')
+                    return OpenAIGenericClient(config=llm_config)
 
                 # Check if this is a reasoning model (o1, o3, gpt-5 family)
                 reasoning_prefixes = ('o1', 'o3', 'gpt-5')
@@ -353,6 +363,22 @@ class EmbedderFactory:
                     embedding_dim=config.dimensions or 1024,
                 )
                 return VoyageAIEmbedder(config=voyage_config)
+
+            case 'sentence-transformers':
+                from graphiti_core.embedder.sentence_transformers import (
+                    SentenceTransformerEmbedder,
+                    SentenceTransformerEmbedderConfig,
+                )
+
+                logger.info('Creating SentenceTransformerEmbedder (local embeddings)')
+                embedder_config = SentenceTransformerEmbedderConfig(
+                    model_name=config.model or 'all-MiniLM-L6-v2',
+                    device='cpu',
+                )
+                return SentenceTransformerEmbedder(
+                    config=embedder_config,
+                    embedding_dim=config.dimensions or 384,
+                )
 
             case _:
                 raise ValueError(f'Unsupported Embedder provider: {provider}')
