@@ -1,5 +1,30 @@
 from .common import Message, Result
+from .graph import (
+    EntityDetailResponse,
+    GraphEdge,
+    GraphNode,
+    GraphQueryRequest,
+    GraphQueryResponse,
+    GraphSchemaResponse,
+    GraphSearchResult,
+    GraphStatsResponse,
+    NeighborsResponse,
+    SchemaNodeLabel,
+    SchemaRelationshipType,
+    TimelineItem,
+)
 from .ingest import AddEntityNodeRequest, AddMessagesRequest
+from .preview import (
+    CommitMemoryRequest,
+    EdgeConfirm,
+    EdgePreview,
+    EpisodePreview,
+    NodeConfirm,
+    NodePreview,
+    PreviewMemoryRequest,
+    PreviewMemoryResponse,
+    PreviewTaskStatus,
+)
 from .retrieve import FactResult, GetMemoryRequest, GetMemoryResponse, SearchQuery, SearchResults
 
 __all__ = [
@@ -12,4 +37,27 @@ __all__ = [
     'Result',
     'GetMemoryRequest',
     'GetMemoryResponse',
+    # Graph query DTOs
+    'GraphStatsResponse',
+    'GraphNode',
+    'GraphEdge',
+    'GraphQueryRequest',
+    'GraphQueryResponse',
+    'GraphSearchResult',
+    'SchemaNodeLabel',
+    'SchemaRelationshipType',
+    'GraphSchemaResponse',
+    'TimelineItem',
+    'EntityDetailResponse',
+    'NeighborsResponse',
+    # Preview/Commit DTOs
+    'PreviewMemoryRequest',
+    'PreviewMemoryResponse',
+    'PreviewTaskStatus',
+    'EpisodePreview',
+    'NodePreview',
+    'EdgePreview',
+    'CommitMemoryRequest',
+    'NodeConfirm',
+    'EdgeConfirm',
 ]

@@ -16,6 +16,7 @@ limitations under the License.
 
 import logging
 import os
+from collections.abc import Callable
 from datetime import datetime
 from time import time
 from uuid import uuid4
@@ -27,7 +28,7 @@ from typing_extensions import LiteralString
 from graphiti_core.cross_encoder.client import CrossEncoderClient
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 from graphiti_core.decorators import handle_multiple_group_ids
-from graphiti_core.driver.driver import GraphDriver
+from graphiti_core.driver.driver import GraphDriver, GraphProvider
 from graphiti_core.edges import (
     CommunityEdge,
     Edge,
@@ -132,6 +133,14 @@ class AddBulkEpisodeResults(BaseModel):
 class AddTripletResults(BaseModel):
     nodes: list[EntityNode]
     edges: list[EntityEdge]
+
+
+class PreviewEpisodeResults(BaseModel):
+    episode: EpisodicNode
+    nodes: list[EntityNode]
+    edges: list[EntityEdge]
+    invalidated_edges: list[EntityEdge]
+    previous_episode_uuids: list[str] = []
 
 
 class Graphiti:
@@ -244,6 +253,17 @@ class Graphiti:
                     embedding_dim=embedding_dim
                 )
                 self.embedder = SentenceTransformerEmbedder(config=config)
+            elif embedder_provider == 'bge_zh':
+                from graphiti_core.embedder.bge_zh import (
+                    BGELargeZHEmbedder,
+                    BGELargeZHEmbedderConfig,
+                )
+
+                embedding_dim = int(
+                    os.getenv('POSTGRES_AGE_EMBEDDING_DIMENSION', '1024')
+                )
+                config = BGELargeZHEmbedderConfig(embedding_dim=embedding_dim)
+                self.embedder = BGELargeZHEmbedder(config=config)
             else:
                 self.embedder = OpenAIEmbedder()
         if cross_encoder:
@@ -1252,6 +1272,234 @@ class Graphiti:
                 span.record_exception(e)
                 raise e
 
+    async def preview_episode(
+        self,
+        name: str,
+        episode_body: str,
+        source_description: str,
+        reference_time: datetime,
+        source: EpisodeType = EpisodeType.message,
+        group_id: str | None = None,
+        uuid: str | None = None,
+        entity_types: dict[str, type[BaseModel]] | None = None,
+        excluded_entity_types: list[str] | None = None,
+        previous_episode_uuids: list[str] | None = None,
+        custom_extraction_instructions: str | None = None,
+        stage_callback: Callable[[str], None] | None = None,
+    ) -> PreviewEpisodeResults:
+        """Run extraction and resolution without writing to the database.
+
+        Returns proposed nodes and edges for user review before commit.
+        """
+        start = time()
+        now = utc_now()
+
+        def _stage(s: str) -> None:
+            if stage_callback:
+                stage_callback(s)
+
+        validate_entity_types(entity_types)
+        validate_excluded_entity_types(excluded_entity_types, entity_types)
+
+        if group_id is None:
+            group_id = get_default_group_id(self.driver.provider)
+        else:
+            validate_group_id(group_id)
+            if group_id != self.driver._database:
+                self.driver = self.driver.clone(database=group_id)
+                self.clients.driver = self.driver
+
+        with self.tracer.start_span('preview_episode') as span:
+            try:
+                # 1. Retrieve previous episodes for context
+                _stage('retrieving_context')
+                previous_episodes = (
+                    await self.retrieve_episodes(
+                        reference_time,
+                        last_n=RELEVANT_SCHEMA_LIMIT,
+                        group_ids=[group_id],
+                        source=source,
+                    )
+                    if previous_episode_uuids is None
+                    else await EpisodicNode.get_by_uuids(self.driver, previous_episode_uuids)
+                )
+
+                # 2. Create episode (in memory only) + extract entities
+                _stage('extracting_entities')
+                episode = EpisodicNode(
+                    name=name,
+                    group_id=group_id,
+                    labels=[],
+                    source=source,
+                    content=episode_body,
+                    source_description=source_description,
+                    created_at=now,
+                    valid_at=reference_time,
+                )
+
+                edge_type_map_default: dict[tuple[str, str], list[str]] = {('Entity', 'Entity'): []}
+
+                extracted_nodes, node_episode_index_map = await extract_nodes(
+                    self.clients,
+                    episode,
+                    previous_episodes,
+                    entity_types,
+                    excluded_entity_types,
+                    custom_extraction_instructions,
+                )
+
+                # 3. Resolve entities (dedup/merge)
+                _stage('resolving_entities')
+                nodes, uuid_map, _ = await resolve_extracted_nodes(
+                    self.clients,
+                    extracted_nodes,
+                    episode,
+                    previous_episodes,
+                    entity_types,
+                )
+
+                # 4. Extract edges
+                _stage('extracting_edges')
+                (
+                    resolved_edges,
+                    invalidated_edges,
+                    new_edges,
+                ) = await self._extract_and_resolve_edges(
+                    episode,
+                    extracted_nodes,
+                    previous_episodes,
+                    edge_type_map_default,
+                    group_id,
+                    None,
+                    nodes,
+                    uuid_map,
+                    custom_extraction_instructions,
+                )
+
+                entity_edges = resolved_edges + invalidated_edges
+
+                # 5. Extract node attributes
+                _stage('extracting_attributes')
+                hydrated_nodes = await extract_attributes_from_nodes(
+                    self.clients,
+                    nodes,
+                    episode,
+                    previous_episodes,
+                    entity_types,
+                    edges=new_edges,
+                )
+
+                end = time()
+                span.add_attributes(
+                    {
+                        'episode.uuid': episode.uuid,
+                        'group_id': group_id,
+                        'node.count': len(hydrated_nodes),
+                        'edge.count': len(entity_edges),
+                        'duration_ms': (end - start) * 1000,
+                    }
+                )
+                logger.info(f'Completed preview_episode in {(end - start) * 1000} ms')
+
+                prev_uuids = [ep.uuid for ep in previous_episodes]
+
+                return PreviewEpisodeResults(
+                    episode=episode,
+                    nodes=hydrated_nodes,
+                    edges=entity_edges,
+                    invalidated_edges=invalidated_edges,
+                    previous_episode_uuids=prev_uuids,
+                )
+
+            except Exception as e:
+                span.set_status('error', str(e))
+                span.record_exception(e)
+                raise e
+
+    async def commit_episode(
+        self,
+        episode: EpisodicNode,
+        nodes: list[EntityNode],
+        entity_edges: list[EntityEdge],
+        group_id: str,
+        update_communities: bool = False,
+    ) -> AddEpisodeResults:
+        """Write user-confirmed nodes and edges to the graph.
+
+        This performs only embedding generation and database writes —
+        no LLM extraction or resolution.
+        """
+        start = time()
+        now = utc_now()
+
+        if group_id != self.driver._database:
+            self.driver = self.driver.clone(database=group_id)
+            self.clients.driver = self.driver
+
+        with self.tracer.start_span('commit_episode') as span:
+            try:
+                # Generate embeddings for new nodes
+                await create_entity_node_embeddings(self.embedder, nodes)
+
+                # Generate embeddings for new edges
+                await create_entity_edge_embeddings(self.embedder, entity_edges)
+
+                # Build episodic edges
+                episodic_edges = build_episodic_edges(
+                    nodes, [episode.uuid], now
+                )
+
+                # Set entity edge references on episode
+                episode.entity_edges = [edge.uuid for edge in entity_edges]
+
+                # Bulk save
+                await add_nodes_and_edges_bulk(
+                    self.driver,
+                    [episode],
+                    episodic_edges,
+                    nodes,
+                    entity_edges,
+                    self.embedder,
+                )
+
+                # Update communities if requested
+                communities: list[CommunityNode] = []
+                community_edges: list[CommunityEdge] = []
+                if update_communities:
+                    communities, community_edges = await semaphore_gather(
+                        *[
+                            update_community(self.driver, self.llm_client, self.embedder, node)
+                            for node in nodes
+                        ],
+                        max_coroutines=self.max_coroutines,
+                    )
+
+                end = time()
+                span.add_attributes(
+                    {
+                        'episode.uuid': episode.uuid,
+                        'group_id': group_id,
+                        'node.count': len(nodes),
+                        'edge.count': len(entity_edges),
+                        'duration_ms': (end - start) * 1000,
+                    }
+                )
+                logger.info(f'Completed commit_episode in {(end - start) * 1000} ms')
+
+                return AddEpisodeResults(
+                    episode=episode,
+                    episodic_edges=episodic_edges,
+                    nodes=nodes,
+                    edges=entity_edges,
+                    communities=communities,
+                    community_edges=community_edges,
+                )
+
+            except Exception as e:
+                span.set_status('error', str(e))
+                span.record_exception(e)
+                raise e
+
     async def add_episode_bulk(
         self,
         bulk_episodes: list[RawEpisode],
@@ -1794,23 +2042,45 @@ class Graphiti:
         # Find edges mentioned by the episode
         edges = await EntityEdge.get_by_uuids(self.driver, episode.entity_edges)
 
-        # We should only delete edges created by the episode
+        # Classify edges: delete (solely owned) vs update (shared with other episodes)
         edges_to_delete: list[EntityEdge] = []
+        edges_to_update: list[EntityEdge] = []
         for edge in edges:
-            if edge.episodes and edge.episodes[0] == episode.uuid:
+            if not edge.episodes or episode.uuid not in edge.episodes:
+                continue
+            if len(edge.episodes) == 1:
                 edges_to_delete.append(edge)
+            else:
+                edge.episodes = [ep for ep in edge.episodes if ep != episode.uuid]
+                edges_to_update.append(edge)
 
         # Find nodes mentioned by the episode
         nodes = await get_mentioned_nodes(self.driver, [episode])
         # We should delete all nodes that are only mentioned in the deleted episode
         nodes_to_delete: list[EntityNode] = []
         for node in nodes:
-            query: LiteralString = 'MATCH (e:Episodic)-[:MENTIONS]->(n:Entity {uuid: $uuid}) RETURN count(*) AS episode_count'
-            records, _, _ = await self.driver.execute_query(query, uuid=node.uuid, routing_='r')
+            if self.driver.provider == GraphProvider.POSTGRES_AGE:
+                query: LiteralString = (
+                    'SELECT count(*) AS episode_count '
+                    'FROM episodic_edges WHERE target_node_uuid = %(uuid)s'
+                )
+                records, _, _ = await self.driver.execute_query(
+                    query, params={'uuid': node.uuid}, routing_='r'
+                )
+            else:
+                query = (
+                    'MATCH (e:Episodic)-[:MENTIONS]->(n:Entity {uuid: $uuid}) '
+                    'RETURN count(*) AS episode_count'
+                )
+                records, _, _ = await self.driver.execute_query(query, uuid=node.uuid, routing_='r')
 
             for record in records:
-                if record['episode_count'] == 1:
+                if int(record['episode_count']) == 1:
                     nodes_to_delete.append(node)
+
+        # Update shared edges: remove this episode's UUID from their episodes array
+        for edge in edges_to_update:
+            await edge.save(self.driver)
 
         await Edge.delete_by_uuids(self.driver, [edge.uuid for edge in edges_to_delete])
         await Node.delete_by_uuids(self.driver, [node.uuid for node in nodes_to_delete])

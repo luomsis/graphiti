@@ -120,8 +120,15 @@ class LLMClientFactory:
                 # Use the same model for both main and small model slots
                 small_model = config.model
 
-                # Resolve base_url from config
+                # Resolve base_url from config, falling back to OPENAI_BASE_URL env var
                 base_url = config.providers.openai.api_url
+                if base_url == 'https://api.openai.com/v1':
+                    # Default URL — let the SDK pick up OPENAI_BASE_URL env var if set
+                    import os
+
+                    env_base_url = os.environ.get('OPENAI_BASE_URL')
+                    if env_base_url:
+                        base_url = env_base_url
 
                 llm_config = CoreLLMConfig(
                     api_key=api_key,
@@ -379,6 +386,20 @@ class EmbedderFactory:
                     config=embedder_config,
                     embedding_dim=config.dimensions or 384,
                 )
+
+            case 'bge_zh':
+                from graphiti_core.embedder.bge_zh import (
+                    BGELargeZHEmbedder,
+                    BGELargeZHEmbedderConfig,
+                )
+
+                logger.info(
+                    'Creating BGELargeZHEmbedder (local BAAI/bge-large-zh-v1.5, 1024d)'
+                )
+                embedder_config = BGELargeZHEmbedderConfig(
+                    embedding_dim=config.dimensions or 1024,
+                )
+                return BGELargeZHEmbedder(config=embedder_config)
 
             case _:
                 raise ValueError(f'Unsupported Embedder provider: {provider}')

@@ -18,6 +18,7 @@ from graphiti_core.nodes import EpisodeType, EpisodicNode
 from graphiti_core.search.search_filters import SearchFilters
 from graphiti_core.utils.maintenance.graph_data_operations import clear_data
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 
@@ -144,9 +145,15 @@ API keys are provided for any language model operations.
 """
 
 # MCP server instance
+# For internal network deployment, allow all hosts to connect.
+# DNS rebinding protection is disabled since the MCP server
+# runs behind a trusted network boundary (not exposed to public internet).
 mcp = FastMCP(
     'Graphiti Agent Memory',
     instructions=GRAPHITI_MCP_INSTRUCTIONS,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+    ),
 )
 
 # Global services
@@ -307,7 +314,17 @@ class GraphitiService:
                 raise
 
             # Build indices
-            await self.client.build_indices_and_constraints()
+            delete_existing = os.environ.get('GRAPHITI_DELETE_EXISTING', '').lower() in (
+                'true',
+                '1',
+                'yes',
+            )
+            if delete_existing:
+                logger.warning(
+                    'GRAPHITI_DELETE_EXISTING is set — dropping and rebuilding schema. '
+                    'All graph data will be lost.'
+                )
+            await self.client.build_indices_and_constraints(delete_existing=delete_existing)
 
             logger.info('Successfully initialized Graphiti client')
 
@@ -607,10 +624,8 @@ async def delete_episode(uuid: str) -> SuccessResponse | ErrorResponse:
     try:
         client = await graphiti_service.get_client()
 
-        # Get the episodic node by UUID
-        episodic_node = await EpisodicNode.get_by_uuid(client.driver, uuid)
-        # Delete the node using its delete method
-        await episodic_node.delete(client.driver)
+        # Use remove_episode for cascade deletion of associated entity nodes and edges
+        await client.remove_episode(uuid)
         return SuccessResponse(message=f'Episode with UUID {uuid} deleted successfully')
     except Exception as e:
         error_msg = str(e)
@@ -720,7 +735,7 @@ async def clear_graph(group_ids: list[str] | None = None) -> SuccessResponse | E
     Args:
         group_ids: Optional list of group IDs to clear. If not provided, clears the default group.
     """
-    global graphiti_service
+    global graphiti_service, queue_service
 
     if graphiti_service is None:
         return ErrorResponse(error='Graphiti service not initialized')
@@ -735,6 +750,12 @@ async def clear_graph(group_ids: list[str] | None = None) -> SuccessResponse | E
 
         if not effective_group_ids:
             return ErrorResponse(error='No group IDs specified for clearing')
+
+        # Drain pending episode queues BEFORE clearing to prevent a race condition
+        # where background episode processing inserts records after the clear.
+        if queue_service is not None:
+            for gid in effective_group_ids:
+                await queue_service.drain_group(gid)
 
         # Clear data for the specified group IDs
         await clear_data(client.driver, group_ids=effective_group_ids)
@@ -980,7 +1001,35 @@ async def run_mcp_server():
         # Configure uvicorn logging to match our format
         configure_uvicorn_logging()
 
-        await mcp.run_streamable_http_async()
+        # Get the Starlette app and add trailing-slash route for /mcp/
+        # Some MCP clients send requests to /mcp/ (with trailing slash) but FastMCP
+        # only registers /mcp. Adding the route here avoids 307 redirects and POST->GET issues.
+        starlette_app = mcp.streamable_http_app()
+        mcp_handler = None
+        for route in starlette_app.routes:
+            if hasattr(route, 'path') and route.path == '/mcp':
+                mcp_handler = route.endpoint
+                break
+        if mcp_handler is None:
+            logger.warning('Could not find /mcp route handler — skipping /mcp/ alias')
+        else:
+            from starlette.routing import Route
+            starlette_app.routes.append(
+                Route('/mcp/', endpoint=mcp_handler, methods=['POST', 'GET'])
+            )
+            logger.info('Added /mcp/ route alias for POST requests')
+
+        # Run with uvicorn directly so we control the server lifecycle
+        import uvicorn
+        config_uvicorn = uvicorn.Config(
+            starlette_app,
+            host=mcp.settings.host,
+            port=mcp.settings.port,
+            log_level='info',
+            log_config=None,  # Use our own logging config
+        )
+        server_uvicorn = uvicorn.Server(config_uvicorn)
+        await server_uvicorn.serve()
     else:
         raise ValueError(
             f'Unsupported transport: {mcp_config.transport}. Use "sse", "stdio", or "http"'

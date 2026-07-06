@@ -16,9 +16,11 @@ limitations under the License.
 
 import json
 import logging
+import os
 import typing
 from typing import Any, ClassVar
 
+import httpx
 import openai
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
@@ -63,7 +65,7 @@ class OpenAIGenericClient(LLMClient):
         config: LLMConfig | None = None,
         cache: bool = False,
         client: typing.Any = None,
-        max_tokens: int = 16384,
+        max_tokens: int | None = None,
     ):
         """
         Initialize the OpenAIGenericClient with the provided configuration, cache setting, and client.
@@ -72,7 +74,7 @@ class OpenAIGenericClient(LLMClient):
             config (LLMConfig | None): The configuration for the LLM client, including API key, model, base URL, temperature, and max tokens.
             cache (bool): Whether to use caching for responses. Defaults to False.
             client (Any | None): An optional async client instance to use. If not provided, a new AsyncOpenAI client is created.
-            max_tokens (int): The maximum number of tokens to generate. Defaults to 16384 (16K) for better compatibility with local models.
+            max_tokens (int | None): The maximum number of tokens to generate. When None, falls back to config.max_tokens.
 
         """
         # removed caching to simplify the `generate_response` override
@@ -84,11 +86,18 @@ class OpenAIGenericClient(LLMClient):
 
         super().__init__(config, cache)
 
-        # Override max_tokens to support higher limits for local models
-        self.max_tokens = max_tokens
+        # Use config.max_tokens unless explicitly overridden via parameter
+        self.max_tokens = max_tokens if max_tokens is not None else config.max_tokens
 
         if client is None:
-            self.client = AsyncOpenAI(api_key=config.api_key, base_url=config.base_url)
+            # Reasoning models (e.g. MiniMax-M2.7) can take much longer than
+            # the SDK default (600s read).  Allow override via LLM_TIMEOUT env var.
+            timeout_seconds = float(os.environ.get('LLM_TIMEOUT', '600'))
+            self.client = AsyncOpenAI(
+                api_key=config.api_key,
+                base_url=config.base_url,
+                timeout=httpx.Timeout(timeout_seconds, connect=10.0),
+            )
         else:
             self.client = client
 
@@ -150,18 +159,57 @@ class OpenAIGenericClient(LLMClient):
             request_kwargs['extra_body'] = {'reasoning_split': True}
 
             response = await self.client.chat.completions.create(**request_kwargs)
-            result = response.choices[0].message.content or ''
+            msg = response.choices[0].message
 
-            # Clean up response: strip <think> tags and markdown code blocks
             import re as _re
 
+            # Primary content from the LLM
+            result = msg.content or ''
+
+            # If content is empty, some reasoning models (vLLM with reasoning_split)
+            # put the full response (including JSON) in reasoning_content.
+            # Try to extract JSON from there as a fallback.
+            if not result:
+                reasoning = getattr(msg, 'reasoning_content', None) or ''
+                if reasoning:
+                    result = reasoning
+
+            # Strip closed <think>...</think> blocks (reasoning process)
             result = _re.sub(r'<think>.*?</think>', '', result, flags=_re.DOTALL).strip()
+
+            # Handle unclosed <think> tag: model exhausted max_tokens mid-thinking
+            if result.startswith('<think>') and '</think>' not in result:
+                raise ValueError(
+                    'LLM response contains only an unclosed <think> tag — the model '
+                    f'exhausted max_tokens ({self.max_tokens}) on reasoning before '
+                    'producing any content. Consider increasing max_tokens in config.'
+                )
+
             # Strip markdown code blocks (```json ... ``` or ``` ... ```)
             code_block = _re.search(r'```(?:json)?\s*\n?(.*?)```', result, _re.DOTALL)
             if code_block:
                 result = code_block.group(1).strip()
 
-            return json.loads(result)
+            # Validate non-empty after cleanup
+            if not result:
+                raise ValueError(
+                    'LLM returned empty content (content=null and no usable '
+                    'reasoning_content). This may indicate the model exhausted '
+                    f'max_tokens ({self.max_tokens}) on reasoning. '
+                    'Consider increasing max_tokens in config.'
+                )
+
+            parsed = json.loads(result)
+
+            # Detect empty JSON object — model failed to produce valid output
+            if isinstance(parsed, dict) and len(parsed) == 0:
+                raise ValueError(
+                    'LLM returned empty JSON object {}. The model may have '
+                    'exhausted tokens on reasoning or failed to understand the prompt. '
+                    f'max_tokens={self.max_tokens}.'
+                )
+
+            return parsed
         except openai.RateLimitError as e:
             raise RateLimitError from e
         except Exception as e:
@@ -213,9 +261,22 @@ class OpenAIGenericClient(LLMClient):
                 except (
                     openai.APITimeoutError,
                     openai.APIConnectionError,
-                    openai.InternalServerError,
-                ):
-                    # Let OpenAI's client handle these retries
+                ) as e:
+                    # Transient network errors — retry at application level for
+                    # reasoning models that occasionally exceed server-side or
+                    # client-side timeouts.
+                    last_error = e
+                    if retry_count >= self.MAX_RETRIES:
+                        logger.error(f'Max retries ({self.MAX_RETRIES}) exceeded on timeout/connection error: {e}')
+                        span.set_status('error', str(e))
+                        span.record_exception(e)
+                        raise
+                    retry_count += 1
+                    logger.warning(
+                        f'Retrying after timeout/connection error (attempt {retry_count}/{self.MAX_RETRIES}): {e}'
+                    )
+                except openai.InternalServerError:
+                    # Let OpenAI's client handle 5xx retries
                     span.set_status('error', str(last_error))
                     raise
                 except Exception as e:

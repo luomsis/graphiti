@@ -8,9 +8,9 @@ server:
 
 llm:
   provider: "openai"  # Options: openai, azure_openai, anthropic, gemini, groq
-  model: "MiniMax-M2.7"
-  max_tokens: 4096
-  use_generic_client: true  # Use chat/completions only — MiniMax does not support /v1/responses
+  model: ${OPENAI_MODEL_NAME:-MiniMax-M2.7}
+  max_tokens: ${OPENAI_MAX_TOKENS:-16384}  # Reasoning models need a large budget; 4096 causes empty-output failures
+  use_generic_client: ${USE_GENERIC_CLIENT:-true}  # Use chat/completions only
 
   providers:
     openai:
@@ -40,14 +40,14 @@ llm:
       api_url: ${GROQ_API_URL:https://api.groq.com/openai/v1}
 
 embedder:
-  provider: "openai"  # Use remote embedding service via OpenAI-compatible API
-  model: "all-MiniLM-L6-v2"
-  dimensions: 384
+  provider: ${EMBEDDER_PROVIDER:-bge_zh}  # Local BGE-large-zh-v1.5 (1024d)
+  model: ${EMBEDDING_MODEL:-BAAI/bge-large-zh-v1.5}
+  dimensions: ${POSTGRES_AGE_EMBEDDING_DIMENSION:-1024}
 
   providers:
     openai:
       api_key: "not-needed"
-      api_url: ${EMBEDDING_API_URL:-http://embedding-service:8080/v1}
+      api_url: ${EMBEDDING_API_URL:-http://host.docker.internal:8080/v1}
       organization_id: ${OPENAI_ORGANIZATION_ID:}
 
     azure_openai:
@@ -68,13 +68,13 @@ embedder:
       model: "voyage-3"
 
 database:
-  provider: "postgres_age"  # Using PostgreSQL + Apache AGE for this configuration
+  provider: ${DATABASE_PROVIDER:-postgres_age}  # Using PostgreSQL + Apache AGE
 
   providers:
     postgres_age:
       dsn: ${POSTGRES_AGE_DSN:postgresql://graphiti:graphiti@postgres-age:5432/graphiti}
       graph_name: ${POSTGRES_AGE_GRAPH_NAME:graphiti}
-      embedding_dimension: ${POSTGRES_AGE_EMBEDDING_DIMENSION:384}
+      embedding_dimension: ${POSTGRES_AGE_EMBEDDING_DIMENSION:1024}
 
 graphiti:
   group_id: ${GRAPHITI_GROUP_ID:main}

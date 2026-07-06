@@ -1,0 +1,113 @@
+// app/graph/graph-client.tsx
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { GraphCanvas } from '@/components/graph/graph-canvas';
+import { GraphControls } from '@/components/graph/graph-controls';
+import { GraphLegend } from '@/components/graph/graph-legend';
+import { GraphSearch } from '@/components/graph/graph-search';
+import { useGraphStore } from '@/stores/graph-store';
+import type { GraphApiResponse } from '@/lib/types';
+
+interface Group {
+  id: string;
+  name: string;
+  count: number;
+}
+
+export default function GraphPageClient() {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
+
+  // Whether a search-driven focus is active (to show "clear" button)
+  const centerNode = useGraphStore((s) => s.centerNode);
+
+  // Load group list
+  useEffect(() => {
+    fetch('/api/graph/groups')
+      .then((res) => res.json())
+      .then((data) => {
+        setGroups(data);
+        // Auto-select first group if available
+        if (data.length > 0 && !selectedGroup) {
+          setSelectedGroup(data[0].id);
+        }
+      })
+      .catch((err) => console.error('Failed to load groups:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Focus on a node from search: fetch subgraph and focus view
+  const handleSearchSelect = useCallback(async (nodeId: string) => {
+    try {
+      const res = await fetch(
+        `/api/graph/subgraph?nodeId=${encodeURIComponent(nodeId)}`,
+      );
+      const data: GraphApiResponse = await res.json();
+      useGraphStore.getState().focusNode(nodeId, data);
+    } catch (err) {
+      console.error('Failed to fetch subgraph:', err);
+    }
+  }, []);
+
+  // Group changed → reload graph
+  const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const groupId = e.target.value;
+    setSelectedGroup(groupId);
+    useGraphStore.getState().resetFocus();
+  };
+
+  // Clear search focus → restore full graph
+  const handleClearFocus = useCallback(() => {
+    useGraphStore.getState().resetFocus();
+  }, []);
+
+  const groupId = selectedGroup || undefined;
+
+  return (
+    <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 border-b px-4 py-2">
+        <GraphSearch groupId={groupId} onSelect={handleSearchSelect} />
+        {centerNode && (
+          <button
+            onClick={handleClearFocus}
+            className="rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+          >
+            返回全图
+          </button>
+        )}
+        <div className="flex-1" />
+        <select
+          value={selectedGroup}
+          onChange={handleGroupChange}
+          className="flex h-9 w-[200px] rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {groups.map((group) => (
+            <option key={group.id} value={group.id}>
+              {group.name} ({group.count})
+            </option>
+          ))}
+        </select>
+        <GraphControls />
+      </div>
+
+      {/* Main area — Canvas left, Panel right */}
+      <div className="relative flex-1 overflow-hidden flex">
+        {/* Canvas area — popover is managed inside GraphCanvas */}
+        <div className="flex-1 relative">
+          {!selectedGroup && groups.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              暂无分组数据
+            </div>
+          ) : (
+            <GraphCanvas groupId={groupId} />
+          )}
+        </div>
+      </div>
+
+      {/* Legend bar */}
+      <GraphLegend />
+    </div>
+  );
+}

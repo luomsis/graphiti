@@ -990,11 +990,12 @@ name = "graphiti-core"
 version = "0.29.1"
 source = { editable = "." }
 dependencies = [
-    { name = "neo4j" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "openai" },
+    { name = "pgvector" },
     { name = "posthog" },
+    { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "tenacity" },
@@ -1044,6 +1045,9 @@ groq = [
 kuzu = [
     { name = "kuzu" },
 ]
+neo4j = [
+    { name = "neo4j" },
+]
 neo4j-opensearch = [
     { name = "boto3" },
     { name = "opensearch-py" },
@@ -1056,6 +1060,10 @@ neptune = [
 postgres-age = [
     { name = "pgvector" },
     { name = "psycopg", extra = ["binary", "pool"] },
+]
+providers = [
+    { name = "falkordb" },
+    { name = "neo4j" },
 ]
 sentence-transformers = [
     { name = "sentence-transformers" },
@@ -1077,6 +1085,7 @@ requires-dist = [
     { name = "boto3", marker = "extra == 'neptune'", specifier = ">=1.39.16" },
     { name = "falkordb", marker = "extra == 'dev'", specifier = ">=1.1.2,<2.0.0" },
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.1.2,<2.0.0" },
+    { name = "falkordb", marker = "extra == 'providers'", specifier = ">=1.1.2,<2.0.0" },
     { name = "gliner2", marker = "python_full_version >= '3.11' and extra == 'gliner2'", specifier = ">=1.2.0" },
     { name = "google-genai", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "google-genai", marker = "extra == 'google-genai'", specifier = ">=1.62.0" },
@@ -1092,7 +1101,8 @@ requires-dist = [
     { name = "langchain-openai", marker = "extra == 'dev'", specifier = ">=0.2.6" },
     { name = "langgraph", marker = "extra == 'dev'", specifier = ">=1.0.10" },
     { name = "langsmith", marker = "extra == 'dev'", specifier = ">=0.1.108" },
-    { name = "neo4j", specifier = ">=5.26.0" },
+    { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=5.26.0" },
+    { name = "neo4j", marker = "extra == 'providers'", specifier = ">=5.26.0" },
     { name = "numpy", specifier = ">=1.0.0" },
     { name = "openai", specifier = ">=1.91.0" },
     { name = "opensearch-py", marker = "extra == 'dev'", specifier = ">=3.0.0" },
@@ -1101,8 +1111,10 @@ requires-dist = [
     { name = "opentelemetry-api", marker = "extra == 'tracing'", specifier = ">=1.20.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'dev'", specifier = ">=1.20.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'tracing'", specifier = ">=1.20.0" },
+    { name = "pgvector", specifier = ">=0.3.6" },
     { name = "pgvector", marker = "extra == 'postgres-age'", specifier = ">=0.3.6" },
     { name = "posthog", specifier = ">=3.0.0" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.0" },
     { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'postgres-age'", specifier = ">=3.2.0" },
     { name = "pydantic", specifier = ">=2.11.5" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.404" },
@@ -1118,7 +1130,7 @@ requires-dist = [
     { name = "voyageai", marker = "extra == 'dev'", specifier = ">=0.2.3" },
     { name = "voyageai", marker = "extra == 'voyageai'", specifier = ">=0.2.3" },
 ]
-provides-extras = ["anthropic", "groq", "google-genai", "kuzu", "falkordb", "voyageai", "gliner2", "neo4j-opensearch", "sentence-transformers", "neptune", "tracing", "postgres-age", "dev"]
+provides-extras = ["anthropic", "groq", "google-genai", "kuzu", "falkordb", "voyageai", "gliner2", "neo4j-opensearch", "sentence-transformers", "neptune", "tracing", "neo4j", "postgres-age", "providers", "dev"]
 
 [[package]]
 name = "groq"
