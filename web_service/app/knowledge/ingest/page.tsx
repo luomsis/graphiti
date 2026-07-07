@@ -8,8 +8,11 @@ import {
   ChevronRight,
   FileText,
   Loader2,
+  Pencil,
+  Plus,
   Send,
   Settings2,
+  Trash2,
   Type,
   Upload,
   X,
@@ -19,6 +22,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { NodeEditDialog } from '@/components/ingest/node-edit-dialog';
+import { EdgeEditDialog } from '@/components/ingest/edge-edit-dialog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,6 +122,16 @@ export default function IngestPage() {
   const [preview, setPreview] = useState<PreviewMemoryResponse | null>(null);
   const [excludedNodeIds, setExcludedNodeIds] = useState<Set<string>>(new Set());
   const [excludedEdgeIds, setExcludedEdgeIds] = useState<Set<string>>(new Set());
+
+  // Edit dialog state
+  const [editingNode, setEditingNode] = useState<{
+    node: NodePreview;
+    isNew: boolean;
+  } | null>(null);
+  const [editingEdge, setEditingEdge] = useState<{
+    edge: EdgePreview;
+    isNew: boolean;
+  } | null>(null);
 
   // Commit state
   const [committing, setCommitting] = useState(false);
@@ -295,6 +310,190 @@ export default function IngestPage() {
       setCommitting(false);
     }
   }, [preview, excludedNodeIds, excludedEdgeIds, effectiveGroupId, router]);
+
+  // -----------------------------------------------------------------------
+  // CRUD handlers for nodes and edges
+  // -----------------------------------------------------------------------
+
+  const handleSaveNode = useCallback(
+    (uuid: string, data: { name: string; labels: string[]; summary: string }) => {
+      setPreview((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          nodes: prev.nodes.map((n) =>
+            n.uuid === uuid ? { ...n, ...data } : n,
+          ),
+          edges: prev.edges.map((e) => ({
+            ...e,
+            source_node_name:
+              e.source_node_uuid === uuid ? data.name : e.source_node_name,
+            target_node_name:
+              e.target_node_uuid === uuid ? data.name : e.target_node_name,
+          })),
+        };
+      });
+    },
+    [],
+  );
+
+  const handleDeleteNode = useCallback(
+    (uuid: string) => {
+      setPreview((prev) => {
+        if (!prev) return prev;
+        const affectedEdges = prev.edges.filter(
+          (e) => e.source_node_uuid === uuid || e.target_node_uuid === uuid,
+        );
+        if (affectedEdges.length > 0) {
+          const confirmed = window.confirm(
+            `删除该节点将同时删除 ${affectedEdges.length} 条关联关系，是否继续？`,
+          );
+          if (!confirmed) return prev;
+        }
+        return {
+          ...prev,
+          nodes: prev.nodes.filter((n) => n.uuid !== uuid),
+          edges: prev.edges.filter(
+            (e) => e.source_node_uuid !== uuid && e.target_node_uuid !== uuid,
+          ),
+        };
+      });
+      // Also clean up excluded sets
+      setExcludedNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(uuid);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleAddNode = useCallback(() => {
+    const newNode: NodePreview = {
+      uuid: crypto.randomUUID(),
+      name: '',
+      labels: ['Entity'],
+      summary: '',
+      group_id: effectiveGroupId,
+      is_new: true,
+    };
+    setEditingNode({ node: newNode, isNew: true });
+  }, [effectiveGroupId]);
+
+  const handleNodeDialogSave = useCallback(
+    (uuid: string, data: { name: string; labels: string[]; summary: string }) => {
+      if (editingNode?.isNew) {
+        // Adding a new node
+        const newNode: NodePreview = {
+          uuid,
+          ...data,
+          group_id: effectiveGroupId,
+          is_new: true,
+        };
+        setPreview((prev) =>
+          prev ? { ...prev, nodes: [...prev.nodes, newNode] } : prev,
+        );
+      } else {
+        handleSaveNode(uuid, data);
+      }
+    },
+    [editingNode, effectiveGroupId, handleSaveNode],
+  );
+
+  const handleSaveEdge = useCallback(
+    (
+      uuid: string,
+      data: {
+        name: string;
+        fact: string;
+        source_node_uuid: string;
+        target_node_uuid: string;
+      },
+    ) => {
+      setPreview((prev) => {
+        if (!prev) return prev;
+        const sourceNode = prev.nodes.find((n) => n.uuid === data.source_node_uuid);
+        const targetNode = prev.nodes.find((n) => n.uuid === data.target_node_uuid);
+        return {
+          ...prev,
+          edges: prev.edges.map((e) =>
+            e.uuid === uuid
+              ? {
+                  ...e,
+                  ...data,
+                  source_node_name: sourceNode?.name || '',
+                  target_node_name: targetNode?.name || '',
+                }
+              : e,
+          ),
+        };
+      });
+    },
+    [],
+  );
+
+  const handleDeleteEdge = useCallback((uuid: string) => {
+    setPreview((prev) =>
+      prev ? { ...prev, edges: prev.edges.filter((e) => e.uuid !== uuid) } : prev,
+    );
+    setExcludedEdgeIds((prev) => {
+      const next = new Set(prev);
+      next.delete(uuid);
+      return next;
+    });
+  }, []);
+
+  const handleAddEdge = useCallback(() => {
+    const newEdge: EdgePreview = {
+      uuid: crypto.randomUUID(),
+      name: '',
+      fact: '',
+      source_node_uuid: '',
+      source_node_name: '',
+      target_node_uuid: '',
+      target_node_name: '',
+      valid_at: null,
+      invalid_at: null,
+    };
+    setEditingEdge({ edge: newEdge, isNew: true });
+  }, []);
+
+  const handleEdgeDialogSave = useCallback(
+    (
+      uuid: string,
+      data: {
+        name: string;
+        fact: string;
+        source_node_uuid: string;
+        target_node_uuid: string;
+      },
+    ) => {
+      if (editingEdge?.isNew) {
+        // Adding a new edge
+        const sourceNode = preview?.nodes.find((n) => n.uuid === data.source_node_uuid);
+        const targetNode = preview?.nodes.find((n) => n.uuid === data.target_node_uuid);
+        const newEdge: EdgePreview = {
+          uuid,
+          ...data,
+          source_node_name: sourceNode?.name || '',
+          target_node_name: targetNode?.name || '',
+          valid_at: null,
+          invalid_at: null,
+        };
+        setPreview((prev) =>
+          prev ? { ...prev, edges: [...prev.edges, newEdge] } : prev,
+        );
+      } else {
+        handleSaveEdge(uuid, data);
+      }
+    },
+    [editingEdge, preview, handleSaveEdge],
+  );
+
+  // Available nodes for edge editing (not excluded)
+  const availableNodesForEdges = preview
+    ? preview.nodes.filter((n) => !excludedNodeIds.has(n.uuid))
+    : [];
 
   // -----------------------------------------------------------------------
   // Toggle helpers
@@ -713,14 +912,25 @@ export default function IngestPage() {
 
           {/* Entities */}
           <div className="space-y-2">
-            <h3 className="text-sm font-semibold">
-              实体 ({preview.nodes.length})
-              {excludedNodeIds.size > 0 && (
-                <span className="ml-2 text-xs font-normal text-muted-foreground">
-                  已排除 {excludedNodeIds.size}
-                </span>
-              )}
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">
+                实体 ({preview.nodes.length})
+                {excludedNodeIds.size > 0 && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    已排除 {excludedNodeIds.size}
+                  </span>
+                )}
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={handleAddNode}
+              >
+                <Plus className="mr-0.5 h-3 w-3" />
+                新建
+              </Button>
+            </div>
             {preview.nodes.length === 0 ? (
               <p className="rounded-lg border bg-muted/30 py-6 text-center text-sm text-muted-foreground">
                 未提取到实体
@@ -772,6 +982,24 @@ export default function IngestPage() {
                           </p>
                         )}
                       </div>
+                      {!excluded && (
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <button
+                            onClick={() => setEditingNode({ node, isNew: false })}
+                            className="rounded p-1 text-muted-foreground hover:text-foreground transition-colors"
+                            title="编辑"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteNode(node.uuid)}
+                            className="rounded p-1 text-muted-foreground hover:text-destructive transition-colors"
+                            title="删除"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -781,14 +1009,27 @@ export default function IngestPage() {
 
           {/* Relationships */}
           <div className="space-y-2">
-            <h3 className="text-sm font-semibold">
-              关系 ({preview.edges.length})
-              {excludedEdgeIds.size > 0 && (
-                <span className="ml-2 text-xs font-normal text-muted-foreground">
-                  已排除 {excludedEdgeIds.size}
-                </span>
-              )}
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">
+                关系 ({preview.edges.length})
+                {excludedEdgeIds.size > 0 && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    已排除 {excludedEdgeIds.size}
+                  </span>
+                )}
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={handleAddEdge}
+                disabled={availableNodesForEdges.length < 1}
+                title={availableNodesForEdges.length < 1 ? '请先添加节点' : '新建关系'}
+              >
+                <Plus className="mr-0.5 h-3 w-3" />
+                新建
+              </Button>
+            </div>
             {preview.edges.length === 0 ? (
               <p className="rounded-lg border bg-muted/30 py-6 text-center text-sm text-muted-foreground">
                 未提取到关系
@@ -830,12 +1071,35 @@ export default function IngestPage() {
                             {edge.target_node_name || edge.target_node_uuid.slice(0, 8)}
                           </span>
                         </div>
+                        {edge.name && (
+                          <Badge variant="outline" className="mt-0.5 text-[10px]">
+                            {edge.name}
+                          </Badge>
+                        )}
                         {edge.fact && (
                           <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
                             {edge.fact}
                           </p>
                         )}
                       </div>
+                      {!excluded && (
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <button
+                            onClick={() => setEditingEdge({ edge, isNew: false })}
+                            className="rounded p-1 text-muted-foreground hover:text-foreground transition-colors"
+                            title="编辑"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteEdge(edge.uuid)}
+                            className="rounded p-1 text-muted-foreground hover:text-destructive transition-colors"
+                            title="删除"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -880,6 +1144,23 @@ export default function IngestPage() {
             )}
           </Button>
         </div>
+
+        {/* Edit dialogs */}
+        <NodeEditDialog
+          open={!!editingNode}
+          onOpenChange={(open) => { if (!open) setEditingNode(null); }}
+          node={editingNode?.node ?? null}
+          isNew={editingNode?.isNew ?? false}
+          onSave={handleNodeDialogSave}
+        />
+        <EdgeEditDialog
+          open={!!editingEdge}
+          onOpenChange={(open) => { if (!open) setEditingEdge(null); }}
+          edge={editingEdge?.edge ?? null}
+          isNew={editingEdge?.isNew ?? false}
+          nodes={availableNodesForEdges}
+          onSave={handleEdgeDialogSave}
+        />
       </div>
     );
   };

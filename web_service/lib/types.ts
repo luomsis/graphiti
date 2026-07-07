@@ -40,14 +40,14 @@ export interface Relationship {
   fact: string;
   valid_at: string | null;
   invalid_at: string | null;
-  source: 'graphiti' | 'cognee';
+  source: 'graphiti';
 }
 
 export interface DocumentRef {
   id: string;
   name: string;
   chunks_count: number;
-  source: 'graphiti' | 'cognee';
+  source: 'graphiti';
 }
 
 export interface Episode {
