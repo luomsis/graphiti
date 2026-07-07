@@ -1,11 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Copy, PlusCircle, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DocumentTable } from '@/components/knowledge/document-table';
-import { IngestDialog } from '@/components/knowledge/ingest-dialog';
 import { CloneGroupDialog } from '@/components/knowledge/clone-group-dialog';
 import type { Document, DocumentStatus } from '@/lib/types';
 
@@ -16,13 +16,13 @@ interface GroupOption {
 }
 
 export default function KnowledgePage() {
+  const router = useRouter();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [groups, setGroups] = useState<GroupOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'all'>('all');
   const [groupId, setGroupId] = useState('all');
-  const [ingestOpen, setIngestOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
 
   const fetchGroups = useCallback(async (): Promise<GroupOption[]> => {
@@ -78,11 +78,6 @@ export default function KnowledgePage() {
         `Failed to delete "${doc.name}": ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
-  }, [refreshAll]);
-
-  // After ingest commit: refresh everything
-  const handleIngestCommitted = useCallback(() => {
-    refreshAll();
   }, [refreshAll]);
 
   // After group cloned: refresh groups
@@ -162,7 +157,7 @@ export default function KnowledgePage() {
         </select>
 
         {/* New Knowledge button */}
-        <Button size="sm" onClick={() => setIngestOpen(true)}>
+        <Button size="sm" onClick={() => router.push('/knowledge/ingest')}>
           <PlusCircle className="h-4 w-4 mr-1" />
           新建知识
         </Button>
@@ -176,14 +171,6 @@ export default function KnowledgePage() {
       ) : (
         <DocumentTable documents={filteredDocuments} onDelete={handleDelete} />
       )}
-
-      {/* Ingest Dialog */}
-      <IngestDialog
-        open={ingestOpen}
-        onOpenChange={setIngestOpen}
-        groups={groups}
-        onCommitted={handleIngestCommitted}
-      />
 
       {/* Clone Dialog */}
       {groupId !== 'all' && (
