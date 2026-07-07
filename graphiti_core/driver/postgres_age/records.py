@@ -114,6 +114,9 @@ def _simple_edge_kwargs(row: Mapping[str, Any]) -> dict[str, Any]:
 def _vector_to_list(value: Any) -> list[float] | None:
     if value is None:
         return None
+    if hasattr(value, 'to_list'):
+        # pgvector.Vector
+        return [float(item) for item in value.to_list()]
     if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
         return [float(item) for item in value]
     return [float(item) for item in value]
