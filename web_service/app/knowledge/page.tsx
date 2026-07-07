@@ -1,13 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Copy, PlusCircle, Search } from 'lucide-react';
+import { Copy, PlusCircle, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DocumentTable } from '@/components/knowledge/document-table';
 import { CloneGroupDialog } from '@/components/knowledge/clone-group-dialog';
 import type { Document, DocumentStatus } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 interface GroupOption {
   id: string;
@@ -24,6 +25,8 @@ export default function KnowledgePage() {
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'all'>('all');
   const [groupId, setGroupId] = useState('all');
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const pollRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchGroups = useCallback(async (): Promise<GroupOption[]> => {
     try {
@@ -56,6 +59,21 @@ export default function KnowledgePage() {
     refreshAll().finally(() => setLoading(false));
   }, [refreshAll]);
 
+  // Auto-poll when processing/pending items exist
+  useEffect(() => {
+    const hasActive = documents.some(
+      (d) => d.status === 'processing' || d.status === 'pending',
+    );
+    if (hasActive) {
+      pollRef.current = setInterval(() => {
+        fetchDocuments().then((docs) => setDocuments(docs)).catch(() => {});
+      }, 5000);
+    }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [documents, fetchDocuments]);
+
   // Delete a document
   const handleDelete = useCallback(async (doc: Document) => {
     const confirmed = window.confirm(
@@ -80,10 +98,49 @@ export default function KnowledgePage() {
     }
   }, [refreshAll]);
 
+  // Manual refresh handler
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshAll();
+    setRefreshing(false);
+  }, [refreshAll]);
+
   // After group cloned: refresh groups
   const handleCloned = useCallback(() => {
     refreshAll();
   }, [refreshAll]);
+
+  // Delete group
+  const handleDeleteGroup = useCallback(async () => {
+    if (groupId === 'all') return;
+    const confirmed = window.confirm(
+      `确认删除分组 "${groupId}" 吗？\n\n` +
+      '此操作将永久删除该分组下的所有数据，包括：\n' +
+      '- 所有知识文档（episodes）\n' +
+      '- 所有提取的实体和关系\n' +
+      '- 所有社区节点和边\n\n' +
+      '此操作不可撤销。',
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(
+        `/api/graph/groups/${encodeURIComponent(groupId)}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Delete failed' }));
+        throw new Error(err.error || 'Delete failed');
+      }
+      setGroupId('all');
+      await refreshAll();
+    } catch (error) {
+      console.error('Failed to delete group:', error);
+      window.alert(
+        `删除分组失败: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }, [groupId, refreshAll]);
 
   const filteredDocuments = documents.filter((doc) => {
     if (statusFilter !== 'all' && doc.status !== statusFilter) return false;
@@ -130,6 +187,16 @@ export default function KnowledgePage() {
           >
             <Copy className="h-4 w-4" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-destructive hover:text-destructive"
+            disabled={groupId === 'all'}
+            onClick={handleDeleteGroup}
+            title="删除当前分组"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
 
         {/* Search */}
@@ -155,6 +222,20 @@ export default function KnowledgePage() {
           <option value="pending">⏳ 排队中</option>
           <option value="failed">❌ 失败</option>
         </select>
+
+        {/* Refresh button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          title="刷新列表"
+        >
+          <RefreshCw
+            className={cn('h-4 w-4', refreshing && 'animate-spin')}
+          />
+        </Button>
 
         {/* New Knowledge button */}
         <Button size="sm" onClick={() => router.push('/knowledge/ingest')}>

@@ -64,14 +64,6 @@ export interface TimelineEntry {
   status: 'current' | 'expired';
 }
 
-export interface Source {
-  id: string;
-  type: 'document' | 'episode';
-  name: string;
-  detail?: string;
-  source: 'graphiti' | 'cognee';
-}
-
 export interface EntityDetail {
   id: string;
   name: string;
@@ -102,19 +94,6 @@ export interface Document {
   entityCount: number;
   createdAt: string;
   group_id: string;
-}
-
-// ─── Search / Filter ───
-
-export interface SearchParams {
-  q: string;
-  type?: string;
-  limit?: number;
-}
-
-export interface TimeRange {
-  start: Date;
-  end: Date;
 }
 
 // ─── Graph API Response ───

@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FileText,
   Loader2,
+  Send,
   Settings2,
   Type,
   Upload,
@@ -62,6 +63,7 @@ interface PreviewMemoryResponse {
 
 type IngestStep = 'input' | 'processing' | 'review';
 type InputMode = 'text' | 'file';
+type IngestMode = 'preview' | 'direct';
 
 interface GroupOption {
   id: string;
@@ -99,6 +101,7 @@ export default function IngestPage() {
   const [groupId, setGroupId] = useState('');
   const [source, setSource] = useState('text');
   const [inputMode, setInputMode] = useState<InputMode>('text');
+  const [mode, setMode] = useState<IngestMode>('preview');
   const [customGroup, setCustomGroup] = useState('');
   const [showCustomGroup, setShowCustomGroup] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -225,6 +228,37 @@ export default function IngestPage() {
       setStep('input');
     }
   }, [content, name, effectiveGroupId, source, fileName]);
+
+  // -----------------------------------------------------------------------
+  // Direct generate handler
+  // -----------------------------------------------------------------------
+
+  const handleDirectGenerate = useCallback(async () => {
+    if (!content.trim()) return;
+    setStep('processing');
+    setPollError(null);
+
+    try {
+      const res = await fetch('/api/knowledge/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name || fileName || content.slice(0, 50),
+          content,
+          group_id: effectiveGroupId,
+          source,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Submit failed' }));
+        throw new Error(err.error);
+      }
+      router.push('/knowledge');
+    } catch (err) {
+      setPollError(err instanceof Error ? err.message : 'Submit failed');
+      setStep('input');
+    }
+  }, [content, name, effectiveGroupId, source, fileName, router]);
 
   // -----------------------------------------------------------------------
   // Commit handler
@@ -392,6 +426,44 @@ export default function IngestPage() {
           </div>
         )}
 
+        {/* Generation mode */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">生成模式</Label>
+          <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+            <button
+              type="button"
+              className={cn(
+                'flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                mode === 'preview'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => setMode('preview')}
+            >
+              <Check className="h-3.5 w-3.5" />
+              审查模式
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                mode === 'direct'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => setMode('direct')}
+            >
+              <Send className="h-3.5 w-3.5" />
+              直接生成
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {mode === 'preview'
+              ? '预览提取结果，手动确认后写入图谱'
+              : '自动提取并写入，无需审查'}
+          </p>
+        </div>
+
         {/* Input mode toggle */}
         <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
           <button
@@ -486,13 +558,27 @@ export default function IngestPage() {
 
       {/* Bottom action */}
       <div className="border-t px-6 py-3">
-        <Button className="w-full" onClick={handlePreview} disabled={!content.trim()}>
-          预览提取
-          <ChevronRight className="ml-1 h-4 w-4" />
-        </Button>
-        <p className="mt-1.5 text-center text-xs text-muted-foreground">
-          提取将分析内容中的实体和关系
-        </p>
+        {mode === 'preview' ? (
+          <>
+            <Button className="w-full" onClick={handlePreview} disabled={!content.trim()}>
+              预览提取
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+            <p className="mt-1.5 text-center text-xs text-muted-foreground">
+              提取将分析内容中的实体和关系
+            </p>
+          </>
+        ) : (
+          <>
+            <Button className="w-full" onClick={handleDirectGenerate} disabled={!content.trim()}>
+              <Send className="mr-1 h-4 w-4" />
+              直接生成
+            </Button>
+            <p className="mt-1.5 text-center text-xs text-muted-foreground">
+              提交到处理队列，自动提取并写入图谱
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -508,7 +594,11 @@ export default function IngestPage() {
           <div className="rounded-2xl border-2 border-dashed p-12 text-center">
             <ChevronRight className="mx-auto mb-3 h-8 w-8 opacity-40" />
             <p className="text-sm font-medium">在左侧输入内容</p>
-            <p className="mt-1 text-xs">点击"预览提取"后，提取结果将在此展示</p>
+            <p className="mt-1 text-xs">
+              {mode === 'preview'
+                ? '点击"预览提取"后，提取结果将在此展示'
+                : '切换为审查模式可在此预览提取结果'}
+            </p>
           </div>
         </div>
       );

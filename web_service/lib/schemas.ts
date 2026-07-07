@@ -107,15 +107,6 @@ export const NeighborsResponseSchema = z.object({
   edges: z.array(GraphEdgeSchema),
 });
 
-// --- Search results (from graph_search handler) ---
-
-export const GraphSearchResultSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  type: z.string(),
-});
-export const GraphSearchResponseSchema = z.array(GraphSearchResultSchema);
-
 // --- Stats (from graph_stats handler) ---
 
 export const GraphStatsSchema = z.object({

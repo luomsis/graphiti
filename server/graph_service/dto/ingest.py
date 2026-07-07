@@ -8,6 +8,13 @@ class AddMessagesRequest(BaseModel):
     messages: list[Message] = Field(..., description='The messages to add')
 
 
+class AddEpisodeRequest(BaseModel):
+    name: str = Field(..., description='The name of the episode')
+    content: str = Field(..., description='The raw content of the episode (no role prefix)')
+    group_id: str = Field(..., description='The group id')
+    source_description: str = Field(default='', description='Description of the source')
+
+
 class AddEntityNodeRequest(BaseModel):
     uuid: str = Field(..., description='The uuid of the node to add')
     group_id: str = Field(..., description='The group id of the node to add')

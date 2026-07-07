@@ -12,6 +12,7 @@ from graphiti_core.utils.maintenance.graph_data_operations import clear_data  # 
 
 from graph_service.dto import (
     AddEntityNodeRequest,
+    AddEpisodeRequest,
     AddMessagesRequest,
     CommitMemoryRequest,
     EdgePreview,
@@ -153,6 +154,40 @@ async def add_messages(
         async_worker.submit(partial(add_messages_task, m), info)
 
     return Result(message='Messages added to processing queue', success=True)
+
+
+@router.post('/add-episode', status_code=status.HTTP_202_ACCEPTED)
+async def add_episode(
+    request: AddEpisodeRequest,
+    graphiti: ZepGraphitiDep,
+):
+    """Submit raw content for extraction without chat-style role prefix."""
+
+    async def episode_task():
+        from graph_service.zep_graphiti import _build_client
+        from graph_service.config import get_settings
+
+        settings = get_settings()
+        task_graphiti = _build_client(settings)
+        try:
+            print(f'  -> Calling add_episode for: {request.name}', flush=True, file=sys.stderr)
+            await task_graphiti.add_episode(
+                name=request.name,
+                episode_body=request.content,
+                reference_time=datetime.now(timezone.utc),
+                source=EpisodeType.text,
+                source_description=request.source_description,
+                group_id=request.group_id,
+            )
+            print(f'  \u2713 add_episode completed for: {request.name}', flush=True, file=sys.stderr)
+        finally:
+            if hasattr(task_graphiti, 'close'):
+                await task_graphiti.close()
+
+    info = JobInfo(name=request.name, group_id=request.group_id)
+    async_worker.submit(partial(episode_task), info)
+
+    return Result(message='Episode added to processing queue', success=True)
 
 
 @router.get('/queue/status', status_code=status.HTTP_200_OK)

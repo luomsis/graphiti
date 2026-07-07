@@ -13,7 +13,7 @@ from .graph import (
     SchemaRelationshipType,
     TimelineItem,
 )
-from .ingest import AddEntityNodeRequest, AddMessagesRequest
+from .ingest import AddEntityNodeRequest, AddEpisodeRequest, AddMessagesRequest
 from .preview import (
     CommitMemoryRequest,
     EdgeConfirm,
@@ -31,6 +31,7 @@ __all__ = [
     'SearchQuery',
     'Message',
     'AddMessagesRequest',
+    'AddEpisodeRequest',
     'AddEntityNodeRequest',
     'SearchResults',
     'FactResult',
