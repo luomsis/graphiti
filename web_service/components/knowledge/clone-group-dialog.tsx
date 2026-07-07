@@ -42,14 +42,14 @@ export function CloneGroupDialog({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/data/groups/${encodeURIComponent(sourceGroupId)}/clone`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ new_group_id: trimmed }),
-        },
-      );
+      const res = await fetch('/api/knowledge/clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          group_id: sourceGroupId,
+          new_group_id: trimmed,
+        }),
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ detail: 'Clone failed' }));
         throw new Error(data.detail || data.error || 'Clone failed');

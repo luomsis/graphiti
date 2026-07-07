@@ -1,8 +1,15 @@
-"""Graph query and visualization routes"""
+"""Graph query, visualization, and group management routes"""
 
+import functools
+import json
+from collections.abc import Callable
 from datetime import datetime, timezone
+from typing import Any
+from uuid import uuid4
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from graph_service.dto import (
     GraphQueryRequest,
@@ -17,6 +24,71 @@ from graph_service.dto import (
 from graph_service.zep_graphiti import ZepGraphitiDep
 
 router = APIRouter()
+
+# Canonical table names (9 tables: 4 node + 5 edge)
+_ALL_TABLES = [
+    'entity_nodes',
+    'episodic_nodes',
+    'community_nodes',
+    'saga_nodes',
+    'entity_edges',
+    'episodic_edges',
+    'community_edges',
+    'has_episode_edges',
+    'next_episode_edges',
+]
+
+# Node tables in dependency order (episodic_nodes before saga_nodes due to FK)
+_NODE_TABLES = [
+    'entity_nodes',
+    'episodic_nodes',
+    'community_nodes',
+    'saga_nodes',
+]
+
+# Edge tables — all depend on already-copied nodes
+_EDGE_TABLES = [
+    'entity_edges',
+    'episodic_edges',
+    'community_edges',
+    'has_episode_edges',
+    'next_episode_edges',
+]
+
+
+class CloneGroupRequest(BaseModel):
+    """Request body for group clone endpoint."""
+    new_group_id: str
+
+
+def _graph_endpoint(func: Callable) -> Callable:
+    """Decorator that wraps graph API endpoints with standard error handling.
+
+    Catches all unhandled exceptions, logs them with a traceback, and
+    re-raises as HTTP 500.  HTTPException instances pass through unchanged.
+    Non-Response return values are serialized via JSONResponse with a
+    ``default=str`` fallback for complex types (numpy arrays, UUIDs, etc.).
+    """
+    @functools.wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            result = await func(*args, **kwargs)
+            if isinstance(result, JSONResponse):
+                return result
+            return JSONResponse(content=json.loads(json.dumps(result, default=str)))
+        except HTTPException:
+            raise
+        except Exception as e:
+            import traceback
+            print(f'Error in {func.__name__}: {e}', flush=True)
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=str(e)) from None
+    return wrapper
+
+
+def _get_schema(driver: Any) -> str:
+    """Get schema from driver (works with PostgresAgeDriver)."""
+    return getattr(driver, 'schema', 'public')  # type: ignore[attr-defined]
 
 
 @router.get('/graph/stats', status_code=status.HTTP_200_OK)
@@ -358,3 +430,151 @@ async def get_graph_timeline(graphiti: ZepGraphitiDep, limit: int = 20):
         print(f'❌ Error in get_graph_timeline: {e}', flush=True)
         traceback.print_exc()
         return []
+
+
+# ---------------------------------------------------------------------------
+# POST /graph/groups/{group_id}/clone — clone a group at the DB level
+# ---------------------------------------------------------------------------
+@router.post('/graph/groups/{group_id}/clone', status_code=status.HTTP_201_CREATED)
+@_graph_endpoint
+async def clone_group(
+    group_id: str,
+    body: CloneGroupRequest,
+    graphiti: ZepGraphitiDep = ...,  # type: ignore[assignment]
+):
+    """
+    Clone a group by copying all its data to a new group_id at the database level.
+
+    - All 9 tables are copied (4 node + 5 edge).
+    - New UUIDs are generated; foreign keys between tables are remapped.
+    - The AGE graph projection is rebuilt automatically after the copy.
+    """
+    new_group_id = body.new_group_id.strip()
+    if not new_group_id:
+        raise HTTPException(status_code=400, detail='new_group_id must not be empty')
+
+    driver = graphiti.driver
+    schema = _get_schema(driver)
+
+    # 1. Verify source group exists
+    check_result, _, _ = await driver.execute_query(
+        f"SELECT COUNT(*) as count FROM {schema}.entity_nodes WHERE group_id = %(group_id)s",
+        params={'group_id': group_id},
+    )
+    if not check_result or check_result[0].get('count', 0) == 0:
+        raise HTTPException(status_code=404, detail=f"Source group '{group_id}' not found or empty")
+
+    # 2. Check target group doesn't already exist
+    target_check, _, _ = await driver.execute_query(
+        f"SELECT COUNT(*) as count FROM {schema}.entity_nodes WHERE group_id = %(group_id)s",
+        params={'group_id': new_group_id},
+    )
+    if target_check and target_check[0].get('count', 0) > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Target group '{new_group_id}' already contains data. Choose a different name.",
+        )
+
+    # 3. Global UUID map: old_uuid -> new_uuid (shared across all node tables)
+    uuid_map: dict[str, str] = {}
+
+    # Helper: convert non-JSON-safe values for psycopg INSERT
+    def _safe_value(v: Any) -> Any:
+        if isinstance(v, dict):
+            return json.dumps(v)
+        if isinstance(v, list):
+            return [json.dumps(item) if isinstance(item, dict) else item for item in v]
+        if isinstance(v, datetime):
+            return v  # psycopg handles datetime natively
+        return v
+
+    # 4. Copy node tables in dependency order
+    for table_name in _NODE_TABLES:
+        rows, _, _ = await driver.execute_query(
+            f"SELECT * FROM {schema}.{table_name} WHERE group_id = %(group_id)s ORDER BY uuid",
+            params={'group_id': group_id},
+        )
+        if not rows:
+            continue
+
+        for row in rows:
+            old_uuid = str(row['uuid'])
+            new_uuid = str(uuid4())
+            uuid_map[old_uuid] = new_uuid
+
+            # Build column list, skipping GENERATED columns
+            cols = []
+            vals = {}
+            for k, v in row.items():
+                if k == 'search_vector':
+                    continue
+                if k == 'uuid':
+                    cols.append(k)
+                    vals[k] = new_uuid
+                elif k == 'group_id':
+                    cols.append(k)
+                    vals[k] = new_group_id
+                else:
+                    cols.append(k)
+                    vals[k] = _safe_value(v)
+
+            cols_str = ', '.join(cols)
+            placeholders = ', '.join(f'%({c})s' for c in cols)
+            await driver.execute_query(
+                f"INSERT INTO {schema}.{table_name} ({cols_str}) VALUES ({placeholders})",
+                params=vals,
+            )
+
+    # 5. Copy edge tables, remapping source/target node UUIDs
+    for table_name in _EDGE_TABLES:
+        rows, _, _ = await driver.execute_query(
+            f"SELECT * FROM {schema}.{table_name} WHERE group_id = %(group_id)s ORDER BY uuid",
+            params={'group_id': group_id},
+        )
+        if not rows:
+            continue
+
+        for row in rows:
+            cols = []
+            vals = {}
+            for k, v in row.items():
+                if k == 'search_vector':
+                    continue
+                if k == 'uuid':
+                    cols.append(k)
+                    vals[k] = str(uuid4())
+                elif k == 'group_id':
+                    cols.append(k)
+                    vals[k] = new_group_id
+                elif k in ('source_node_uuid', 'target_node_uuid'):
+                    cols.append(k)
+                    vals[k] = uuid_map.get(str(v), str(v))
+                else:
+                    cols.append(k)
+                    vals[k] = _safe_value(v)
+
+            cols_str = ', '.join(cols)
+            placeholders = ', '.join(f'%({c})s' for c in cols)
+            await driver.execute_query(
+                f"INSERT INTO {schema}.{table_name} ({cols_str}) VALUES ({placeholders})",
+                params=vals,
+            )
+
+    # 6. Rebuild AGE graph projection (includes all groups)
+    await driver.graph_ops.rebuild_age_projection(driver)
+
+    # 7. Build table counts for response
+    table_counts: dict[str, int] = {}
+    for table_name in _ALL_TABLES:
+        count_result, _, _ = await driver.execute_query(
+            f"SELECT COUNT(*) as count FROM {schema}.{table_name} WHERE group_id = %(group_id)s",
+            params={'group_id': new_group_id},
+        )
+        table_counts[table_name] = count_result[0].get('count', 0) if count_result else 0
+
+    return {
+        'success': True,
+        'source': group_id,
+        'target': new_group_id,
+        'table_counts': table_counts,
+    }

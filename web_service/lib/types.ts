@@ -104,23 +104,6 @@ export interface Document {
   group_id: string;
 }
 
-// ─── Explore Chat ───
-
-export interface ExploreChatRequest {
-  message: string;
-  centerEntityId: string;
-  visibleNodeIds: string[];
-  sessionId?: string;
-}
-
-export interface ExploreChatResponse {
-  answer: string;
-  sources: Source[];
-  highlightNodes?: string[];
-  switchCenter?: string;
-  switchDepth?: 1 | 2;
-}
-
 // ─── Search / Filter ───
 
 export interface SearchParams {
@@ -140,60 +123,3 @@ export interface GraphApiResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
-
-// ─── Upload Response ───
-
-export interface UploadResponse {
-  id: string;
-  name: string;
-  status: DocumentStatus;
-  group_id: string;
-}
-
-// ─── Data Management ───
-
-export interface GroupStats {
-  group_id: string;
-  created_at: string | null;
-  node_count: number;
-  edge_count: number;
-  table_counts: Record<string, number>;
-}
-
-export interface GroupDetail {
-  group_id: string;
-  table: string | null;
-  page: number;
-  size: number;
-  total: number;
-  table_counts: Record<string, number>;
-  records: Record<string, unknown>[];
-}
-
-export interface PatchSummary {
-  added: number;
-  removed: number;
-  modified: number;
-  conflicts: number;
-}
-
-export interface PatchPreview {
-  version: number;
-  metadata: {
-    from_group_id?: string;
-    to_group_id?: string;
-    created_at?: string;
-  };
-  summary: Record<string, PatchSummary>;
-}
-
-export interface PatchApplyResult {
-  success: boolean;
-  dry_run: boolean;
-  added: number;
-  removed: number;
-  modified: number;
-  conflicts: number;
-}
-
-export type ConflictStrategy = 'ours' | 'theirs' | 'skip-conflicts';

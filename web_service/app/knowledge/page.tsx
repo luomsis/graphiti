@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DocumentTable } from '@/components/knowledge/document-table';
 import { IngestDialog } from '@/components/knowledge/ingest-dialog';
-import { CloneGroupDialog } from '@/components/data/clone-group-dialog';
+import { CloneGroupDialog } from '@/components/knowledge/clone-group-dialog';
 import type { Document, DocumentStatus } from '@/lib/types';
 
 interface GroupOption {
