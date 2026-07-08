@@ -82,10 +82,10 @@ class TestConfig:
         self.OPENAI_BASE_URL = os.environ.get('OPENAI_BASE_URL', '')
         self.OPENAI_MODEL_NAME = os.environ.get('OPENAI_MODEL_NAME', 'MiniMax-M2.7')
         # Embedding
-        self.EMBEDDER_PROVIDER = os.environ.get('EMBEDDER_PROVIDER', 'bge_zh')
+        self.EMBEDDER_PROVIDER = os.environ.get('EMBEDDER_PROVIDER', 'openai')
         self.EMBEDDING_API_URL = os.environ.get('EMBEDDING_API_URL', '')
-        self.EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'BAAI/bge-large-zh-v1.5')
-        self.EMBEDDING_DIM = int(os.environ.get('EMBEDDING_DIM', '1024'))
+        self.EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+        self.EMBEDDING_DIM = int(os.environ.get('EMBEDDING_DIM', '384'))
 
 
 # ======================================================================
@@ -352,7 +352,7 @@ async def test_embedding(config: TestConfig, result: TestResult):
     print(f'{"=" * 60}')
 
     # Local embedders don't need a remote API endpoint
-    if config.EMBEDDER_PROVIDER in ('bge_zh', 'sentence-transformers'):
+    if config.EMBEDDER_PROVIDER in ('sentence-transformers',):
         result.record(
             suite,
             'Configuration',
@@ -505,8 +505,8 @@ async def test_llm(config: TestConfig, result: TestResult):
         assert data.get('choices'), 'response missing choices'
         msg = data['choices'][0].get('message') or {}
         # Same logic as OpenAIGenericClient: read content, fall back to
-        # reasoning_content for models that return content=null.
-        content = msg.get('content') or msg.get('reasoning_content') or ''
+        # reasoning_content / reasoning for models that return content=null.
+        content = msg.get('content') or msg.get('reasoning_content') or msg.get('reasoning') or ''
         # Strip <think>...</think> tags (same as business code)
         content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
         assert content, 'response message.content is empty'

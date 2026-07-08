@@ -122,7 +122,7 @@ export default function DocumentDetailPage() {
               <Badge variant="outline">{doc.type}</Badge>
               <Badge variant="secondary">{doc.group_id}</Badge>
               <Badge>{doc.entities.length} entities</Badge>
-              <Badge variant="outline">{doc.facts.length} facts</Badge>
+              <Badge variant="outline">{doc.facts.length} Relationships</Badge>
             </div>
           </div>
         </div>

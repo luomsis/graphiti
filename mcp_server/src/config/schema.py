@@ -173,9 +173,9 @@ class EmbedderProvidersConfig(BaseModel):
 class EmbedderConfig(BaseModel):
     """Embedder configuration."""
 
-    provider: str = Field(default='bge_zh', description='Embedder provider')
-    model: str = Field(default='BAAI/bge-large-zh-v1.5', description='Model name')
-    dimensions: int = Field(default=1024, description='Embedding dimensions')
+    provider: str = Field(default='openai', description='Embedder provider')
+    model: str = Field(default='all-MiniLM-L6-v2', description='Model name')
+    dimensions: int = Field(default=384, description='Embedding dimensions')
     providers: EmbedderProvidersConfig = Field(default_factory=EmbedderProvidersConfig)
 
 

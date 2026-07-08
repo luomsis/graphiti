@@ -36,7 +36,7 @@ export function DocumentTable({ documents, onDelete }: DocumentTableProps) {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">类型</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Group ID</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">实体数</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">关系数</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">操作</th>
             </tr>
           </thead>

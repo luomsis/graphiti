@@ -83,7 +83,9 @@ services:
       - LLM_TIMEOUT=${LLM_TIMEOUT:-600}
       - GRAPHITI_TELEMETRY_ENABLED=${GRAPHITI_TELEMETRY_ENABLED:-false}
       # Embedding — 使用外部 embedding-service
+      - EMBEDDER_PROVIDER=${EMBEDDER_PROVIDER:-openai}
       - EMBEDDING_API_URL=${EMBEDDING_API_URL:-http://host.docker.internal:8080/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
     volumes:
       - ./mcp_server/config/config-docker-postgres-age.yaml:/app/mcp/config/config.yaml:ro
       - mcp_logs:/var/log/graphiti

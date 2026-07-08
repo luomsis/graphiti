@@ -168,9 +168,14 @@ class OpenAIGenericClient(LLMClient):
 
             # If content is empty, some reasoning models (vLLM with reasoning_split)
             # put the full response (including JSON) in reasoning_content.
+            # Qwen3 and similar models may use the 'reasoning' field instead.
             # Try to extract JSON from there as a fallback.
             if not result:
-                reasoning = getattr(msg, 'reasoning_content', None) or ''
+                reasoning = (
+                    getattr(msg, 'reasoning_content', None)
+                    or getattr(msg, 'reasoning', None)
+                    or ''
+                )
                 if reasoning:
                     result = reasoning
 

@@ -1,5 +1,16 @@
 # syntax=docker/dockerfile:1.9
-FROM python:3.12-slim
+# Graphiti FastAPI Server
+# 基于 graphiti-base:py3.12 统一基础镜像
+#
+# Build options (via --build-arg):
+#   PIP_INDEX_URL    - Internal pip mirror URL for offline/mirror builds (default: empty, uses astral.sh)
+#   PIP_TRUSTED_HOST - Trusted host for pip mirror (default: empty)
+
+# 透传离线构建参数（base 镜像需要）
+ARG PIP_INDEX_URL=
+ARG PIP_TRUSTED_HOST=
+
+FROM graphiti-base:py3.12
 
 # Inherit build arguments for labels
 ARG GRAPHITI_VERSION
@@ -17,25 +28,12 @@ LABEL org.opencontainers.image.source="https://github.com/getzep/graphiti"
 LABEL org.opencontainers.image.documentation="https://github.com/getzep/graphiti/tree/main/server"
 LABEL io.graphiti.core.version="${GRAPHITI_VERSION}"
 
-# Install uv using the installer script
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# 透传 PIP_INDEX_URL/PIP_TRUSTED_HOST 给 uv（uv pip install / uv sync 会自动读取）
+ENV UV_INDEX_URL=${PIP_INDEX_URL} \
+    UV_ALLOW_INSECURE_HOST=${PIP_TRUSTED_HOST} \
+    UV_INDEX_STRATEGY=unsafe-best-match
 
-ADD https://astral.sh/uv/install.sh /uv-installer.sh
-RUN sh /uv-installer.sh && rm /uv-installer.sh
-ENV PATH="/root/.local/bin:$PATH"
-
-# Configure uv for runtime
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never
-
-# Create non-root user
-RUN groupadd -r app && useradd -r -d /app -g app app
-
-# Set up the server application first
+# Set up the server application
 WORKDIR /app
 COPY ./server/pyproject.toml ./server/README.md ./
 COPY ./server/graph_service ./graph_service
