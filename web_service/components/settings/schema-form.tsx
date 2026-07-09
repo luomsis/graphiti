@@ -239,18 +239,36 @@ export function SchemaFormEditor({
                         !attr.name.trim() && 'border-destructive',
                       )}
                     />
-                    <select
-                      value={attr.type}
-                      onChange={(e) =>
-                        updateAttribute(kind, tIdx, aIdx, { type: e.target.value })
-                      }
-                      className="h-6 w-16 rounded border bg-background px-1 text-[11px]"
-                    >
-                      <option value="str">str</option>
-                      <option value="int">int</option>
-                      <option value="float">float</option>
-                      <option value="bool">bool</option>
-                    </select>
+                    {/* 自定义 select —— 兼容 Chrome / Safari / Firefox 的原生外观差异 */}
+                    <div className="relative inline-flex shrink-0 items-center">
+                      <select
+                        value={attr.type}
+                        onChange={(e) =>
+                          updateAttribute(kind, tIdx, aIdx, { type: e.target.value })
+                        }
+                        aria-label="属性类型"
+                        className={cn(
+                          'h-6 w-16 appearance-none rounded border bg-background py-0 pl-1.5 pr-5 text-[11px] text-foreground',
+                          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                        )}
+                      >
+                        <option value="str">str</option>
+                        <option value="int">int</option>
+                        <option value="float">float</option>
+                        <option value="bool">bool</option>
+                      </select>
+                      {/* 自定义下拉箭头（pointer-events-none 不拦截点击） */}
+                      <svg
+                        aria-hidden="true"
+                        className="pointer-events-none absolute right-1 h-3 w-3 text-muted-foreground"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </div>
                     <Input
                       placeholder="描述"
                       value={attr.description}
@@ -261,8 +279,9 @@ export function SchemaFormEditor({
                     />
                     <button
                       type="button"
+                      aria-label="删除属性"
                       onClick={() => removeAttribute(kind, tIdx, aIdx)}
-                      className="text-destructive hover:opacity-70"
+                      className="shrink-0 text-destructive hover:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -289,7 +308,7 @@ export function SchemaFormEditor({
     <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 border-b px-4 py-3">
-        <Button variant="ghost" size="icon" onClick={() => router.push('/settings/schemas')}>
+        <Button variant="ghost" size="icon" aria-label="返回" onClick={() => router.push('/settings/schemas')}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
@@ -305,10 +324,10 @@ export function SchemaFormEditor({
         </Button>
       </div>
 
-      {/* Left + Right split */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Left + Right split — 小屏时改为上下堆叠 */}
+      <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
         {/* Left panel — Form */}
-        <div className="w-[55%] min-w-[400px] overflow-y-auto border-r px-6 py-5">
+        <div className="w-full overflow-y-auto border-b lg:w-[55%] lg:min-w-[380px] lg:border-b-0 lg:border-r px-6 py-5">
         <div className="space-y-5">
           {saveError && (
             <div className="rounded-md border border-destructive/50 bg-destructive/10 p-2">
@@ -347,7 +366,10 @@ export function SchemaFormEditor({
               value={form.custom_instructions}
               onChange={(e) => updateForm({ custom_instructions: e.target.value })}
               placeholder="e.g. 重点关注人物之间的社会关系网络"
-              className="h-20 w-full resize-y rounded-md border bg-background p-2 text-xs"
+              className={cn(
+                'h-20 w-full resize-y rounded-md border bg-background p-2 text-xs text-foreground',
+                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+              )}
             />
           </div>
         </div>

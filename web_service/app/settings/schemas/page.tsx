@@ -152,13 +152,25 @@ export default function SchemasPage() {
 
         // If browser opened a "Save As" dialog the window loses focus.
         // Wait until focus returns (dialog closed) before showing toast.
+        // 兼容方案：部分浏览器（如 macOS Safari）不触发 focus 事件，用超时兜底。
         if (document.hasFocus()) {
           showToast();
         } else {
+          let fired = false;
           const onFocus = () => {
-            showToast();
+            if (fired) return;
+            fired = true;
+            clearTimeout(fallbackTimer);
             window.removeEventListener('focus', onFocus);
+            showToast();
           };
+          // 5s 兜底：若 focus 事件未触发，仍然显示 toast
+          const fallbackTimer = setTimeout(() => {
+            if (fired) return;
+            fired = true;
+            window.removeEventListener('focus', onFocus);
+            showToast();
+          }, 5000);
           window.addEventListener('focus', onFocus);
         }
       })
@@ -402,6 +414,7 @@ export default function SchemasPage() {
                           <Button
                             variant="ghost"
                             size="icon-xs"
+                            aria-label={`编辑 ${s.name}`}
                             onClick={() => router.push(`/settings/schemas/${s.id}/edit`)}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -409,6 +422,7 @@ export default function SchemasPage() {
                           <Button
                             variant="ghost"
                             size="icon-xs"
+                            aria-label={`导出 ${s.name}`}
                             onClick={() => handleExport(s)}
                             disabled={exportingId === s.id}
                           >
@@ -421,6 +435,7 @@ export default function SchemasPage() {
                           <Button
                             variant="ghost"
                             size="icon-xs"
+                            aria-label={`删除 ${s.name}`}
                             onClick={() => setDeleteTarget(s)}
                           >
                             <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -500,7 +515,8 @@ export default function SchemasPage() {
                 name="conflict-action"
                 checked={conflictAction === 'skip'}
                 onChange={() => setConflictAction('skip')}
-                className="accent-primary"
+                className="accent-primary h-4 w-4"
+                style={{ accentColor: 'var(--primary, currentColor)' }}
               />
               <div>
                 <p className="text-sm font-medium">跳过</p>
@@ -521,7 +537,8 @@ export default function SchemasPage() {
                 name="conflict-action"
                 checked={conflictAction === 'overwrite'}
                 onChange={() => setConflictAction('overwrite')}
-                className="accent-primary"
+                className="accent-primary h-4 w-4"
+                style={{ accentColor: 'var(--primary, currentColor)' }}
               />
               <div>
                 <p className="text-sm font-medium">覆盖已有 Schema</p>
@@ -544,7 +561,8 @@ export default function SchemasPage() {
                 name="conflict-action"
                 checked={conflictAction === 'rename'}
                 onChange={() => setConflictAction('rename')}
-                className="mt-0.5 accent-primary"
+                className="mt-0.5 accent-primary h-4 w-4"
+                style={{ accentColor: 'var(--primary, currentColor)' }}
               />
               <div className="flex-1">
                 <p className="text-sm font-medium">重命名为</p>
