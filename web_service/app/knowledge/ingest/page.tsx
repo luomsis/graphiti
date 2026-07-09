@@ -158,6 +158,10 @@ export default function IngestPage() {
   const [stage, setStage] = useState('');
   const [pollError, setPollError] = useState<string | null>(null);
   const cancelRef = useRef(false);
+  const submittingRef = useRef(false);
+  const taskIdRef = useRef<string | null>(null);
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const POLL_MAX_CONSECUTIVE_ERRORS = 5;
 
   // Preview result state
   const [preview, setPreview] = useState<PreviewMemoryResponse | null>(null);
@@ -270,10 +274,14 @@ export default function IngestPage() {
   // -----------------------------------------------------------------------
 
   const handlePreview = useCallback(async () => {
-    if (!content.trim()) return;
+    if (!content.trim() || submittingRef.current) return;
+    submittingRef.current = true;
     setStep('processing');
     setPollError(null);
     cancelRef.current = false;
+    setStage('');
+    taskIdRef.current = null;
+    setTaskId(null); // clear stale taskId from previous attempt
 
     try {
       const res = await fetch('/api/knowledge/preview', {
@@ -293,15 +301,77 @@ export default function IngestPage() {
         throw new Error(err.error);
       }
       const { task_id } = await res.json();
+      taskIdRef.current = task_id;
+      setTaskId(task_id); // triggers polling useEffect
+    } catch (err) {
+      setPollError(err instanceof Error ? err.message : 'Unknown error');
+      setTaskId(null);
+      setStep('input');
+    } finally {
+      submittingRef.current = false;
+    }
+  }, [content, name, effectiveGroupId, source, fileName, schemaId]);
 
-      while (!cancelRef.current) {
-        await new Promise((r) => setTimeout(r, 2000));
-        if (cancelRef.current) break;
+  // -----------------------------------------------------------------------
+  // Polling loop — tied to component lifecycle via useEffect
+  // -----------------------------------------------------------------------
 
-        const poll = await fetch(`/api/knowledge/preview/${encodeURIComponent(task_id)}`);
-        if (!poll.ok) continue;
-        const data = await poll.json();
+  useEffect(() => {
+    if (!taskId) return;
+    if (step !== 'processing') return;
 
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveErrors = 0;
+
+    const poll = async () => {
+      if (cancelled || cancelRef.current) {
+        if (cancelRef.current) setStep('input');
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `/api/knowledge/preview/${encodeURIComponent(taskId)}`,
+        );
+
+        // Check cancelled again after async fetch resolves
+        if (cancelled || cancelRef.current) return;
+
+        if (!res.ok) {
+          // Non-OK response (502, 504, etc.) — skip and retry
+          consecutiveErrors++;
+          if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
+            setPollError('服务器连接异常，请稍后重试');
+            setTaskId(null);
+            setStep('input');
+            return;
+          }
+          timer = setTimeout(poll, 2000);
+          return;
+        }
+
+        // Guard: poll.json() may throw on non-JSON responses (e.g. proxy HTML error pages)
+        let data: { stage?: string; status?: string; result?: unknown; error?: string };
+        try {
+          data = await res.json();
+        } catch {
+          consecutiveErrors++;
+          if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
+            setPollError('服务器响应格式异常，请稍后重试');
+            setTaskId(null);
+            setStep('input');
+            return;
+          }
+          timer = setTimeout(poll, 2000);
+          return;
+        }
+
+        // Check cancelled again after JSON parsing
+        if (cancelled || cancelRef.current) return;
+
+        // Successful parse — reset consecutive error counter
+        consecutiveErrors = 0;
         setStage(data.stage || '');
 
         if (data.status === 'completed' && data.result) {
@@ -310,16 +380,37 @@ export default function IngestPage() {
           return;
         }
         if (data.status === 'failed') {
-          throw new Error(data.error || 'Preview failed');
+          setPollError(data.error || '提取失败');
+          setTaskId(null);
+          setStep('input');
+          return;
         }
-      }
 
-      if (cancelRef.current) setStep('input');
-    } catch (err) {
-      setPollError(err instanceof Error ? err.message : 'Unknown error');
-      setStep('input');
-    }
-  }, [content, name, effectiveGroupId, source, fileName, schemaId]);
+        // Still processing — schedule next poll
+        timer = setTimeout(poll, 2000);
+      } catch {
+        // Network error (fetch itself failed)
+        if (cancelled || cancelRef.current) return;
+        consecutiveErrors++;
+        if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
+          setPollError('网络连接异常，请稍后重试');
+          setTaskId(null);
+          setStep('input');
+          return;
+        }
+        timer = setTimeout(poll, 2000);
+      }
+    };
+
+    // Kick off polling
+    poll();
+
+    return () => {
+      cancelled = true;
+      cancelRef.current = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [taskId, step]);
 
   // -----------------------------------------------------------------------
   // Direct generate handler

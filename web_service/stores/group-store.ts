@@ -4,6 +4,20 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
+/**
+ * Safe noop storage for SSR environments where `window` / `sessionStorage`
+ * are unavailable. Returning an empty object `{}` would cause runtime errors
+ * when zustand calls `getItem` / `setItem` on it.
+ */
+const safeNoopStorage: Storage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+  clear: () => {},
+  key: () => null,
+  length: 0,
+};
+
 interface GroupState {
   /** 当前选中的 group id，'all' 表示显示全部 */
   selectedGroupId: string;
@@ -23,7 +37,7 @@ export const useGroupStore = create<GroupState>()(
     {
       name: 'graphiti-knowledge-group',
       storage: createJSONStorage(
-        () => (typeof window !== 'undefined' ? sessionStorage : ({} as Storage)),
+        () => (typeof window !== 'undefined' ? sessionStorage : safeNoopStorage),
       ),
     },
   ),
