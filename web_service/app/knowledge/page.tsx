@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DocumentTable } from '@/components/knowledge/document-table';
 import { CloneGroupDialog } from '@/components/knowledge/clone-group-dialog';
+import { useGroupStore } from '@/stores/group-store';
 import type { Document, DocumentStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -23,7 +24,9 @@ export default function KnowledgePage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'all'>('all');
-  const [groupId, setGroupId] = useState('all');
+  const groupId = useGroupStore((s) => s.selectedGroupId);
+  const setGroupId = useGroupStore((s) => s.setSelectedGroup);
+  const resetToAll = useGroupStore((s) => s.resetToAll);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
@@ -58,6 +61,16 @@ export default function KnowledgePage() {
   useEffect(() => {
     refreshAll().finally(() => setLoading(false));
   }, [refreshAll]);
+
+  // Validate stored groupId after groups list loads — reset to 'all' if the group was deleted
+  useEffect(() => {
+    if (groups.length > 0 && groupId !== 'all') {
+      const stillExists = groups.some((g) => (g.id || g.name) === groupId);
+      if (!stillExists) {
+        resetToAll();
+      }
+    }
+  }, [groups, groupId, resetToAll]);
 
   // Auto-poll when processing/pending items exist
   useEffect(() => {
@@ -132,7 +145,7 @@ export default function KnowledgePage() {
         const err = await res.json().catch(() => ({ error: 'Delete failed' }));
         throw new Error(err.error || 'Delete failed');
       }
-      setGroupId('all');
+      resetToAll();
       await refreshAll();
     } catch (error) {
       console.error('Failed to delete group:', error);
@@ -140,7 +153,7 @@ export default function KnowledgePage() {
         `删除分组失败: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
-  }, [groupId, refreshAll]);
+  }, [groupId, refreshAll, resetToAll]);
 
   const filteredDocuments = documents.filter((doc) => {
     if (statusFilter !== 'all' && doc.status !== statusFilter) return false;

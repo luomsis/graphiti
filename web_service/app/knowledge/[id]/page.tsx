@@ -6,6 +6,7 @@ import { ArrowLeft, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useGroupStore } from '@/stores/group-store';
 
 interface FactResult {
   uuid: string;
@@ -42,6 +43,7 @@ export default function DocumentDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
+  const setStoredGroup = useGroupStore((s) => s.setSelectedGroup);
 
   const [doc, setDoc] = useState<DocDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,7 +122,17 @@ export default function DocumentDetailPage() {
             <h2 className="text-xl font-bold">{doc.name}</h2>
             <div className="mt-1 flex items-center gap-2">
               <Badge variant="outline">{doc.type}</Badge>
-              <Badge variant="secondary">{doc.group_id}</Badge>
+              <Badge
+                variant="secondary"
+                className="cursor-pointer hover:bg-secondary/80"
+                title="查看同组文档"
+                onClick={() => {
+                  setStoredGroup(doc.group_id);
+                  router.push('/knowledge');
+                }}
+              >
+                {doc.group_id}
+              </Badge>
               <Badge>{doc.entities.length} entities</Badge>
               <Badge variant="outline">{doc.facts.length} Relationships</Badge>
             </div>

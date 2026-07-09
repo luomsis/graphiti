@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { NodeEditDialog } from '@/components/ingest/node-edit-dialog';
 import { EdgeEditDialog } from '@/components/ingest/edge-edit-dialog';
+import { useGroupStore } from '@/stores/group-store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,6 +132,8 @@ export default function IngestPage() {
 
   // Groups
   const [groups, setGroups] = useState<GroupOption[]>([]);
+  const storedGroupId = useGroupStore((s) => s.selectedGroupId);
+  const setStoredGroup = useGroupStore((s) => s.setSelectedGroup);
 
   // Step 1 state
   const [step, setStep] = useState<IngestStep>('input');
@@ -179,13 +182,21 @@ export default function IngestPage() {
     ? customGroup.trim() || 'default'
     : groupId || 'default';
 
-  // Fetch groups on mount
+  // Fetch groups on mount — prefer stored group, fall back to first available
   useEffect(() => {
     fetch('/api/graph/groups', { cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : []))
       .then((data: GroupOption[]) => {
         setGroups(data);
-        if (data.length > 0) setGroupId(data[0].id || data[0].name);
+        if (
+          storedGroupId &&
+          storedGroupId !== 'all' &&
+          data.some((g) => (g.id || g.name) === storedGroupId)
+        ) {
+          setGroupId(storedGroupId);
+        } else if (data.length > 0) {
+          setGroupId(data[0].id || data[0].name);
+        }
       })
       .catch(() => {});
 
@@ -632,7 +643,10 @@ export default function IngestPage() {
             <div className="flex gap-2">
               <select
                 value={groupId}
-                onChange={(e) => setGroupId(e.target.value)}
+                onChange={(e) => {
+                  setGroupId(e.target.value);
+                  setStoredGroup(e.target.value); // sync to shared store
+                }}
                 className="h-9 flex-1 rounded-md border bg-background px-3 text-sm"
               >
                 {groups.length === 0 && <option value="default">default</option>}
