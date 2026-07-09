@@ -7,6 +7,7 @@ import {
   Network,
   FolderOpen,
   Menu,
+  Settings2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
@@ -34,6 +35,11 @@ const navItems: NavItem[] = [
     href: '/knowledge',
     icon: <FolderOpen className="h-4 w-4" />,
   },
+  {
+    label: 'Schemas',
+    href: '/settings/schemas',
+    icon: <Settings2 className="h-4 w-4" />,
+  },
 ];
 
 function SidebarContent() {
@@ -48,13 +54,17 @@ function SidebarContent() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-2">
-        {navItems.map((item) => (
+        {navItems.map((item) => {
+          const isActive = item.href === '/'
+            ? pathname === '/'
+            : pathname.startsWith(item.href);
+          return (
           <Link
             key={item.label}
             href={item.href}
             className={cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground',
-              pathname === item.href
+              isActive
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground'
             )}
@@ -62,7 +72,8 @@ function SidebarContent() {
             {item.icon}
             <span>{item.label}</span>
           </Link>
-        ))}
+          );
+        })}
       </nav>
     </div>
   );

@@ -26,6 +26,13 @@ from .preview import (
     PreviewTaskStatus,
 )
 from .retrieve import FactResult, GetMemoryRequest, GetMemoryResponse, SearchQuery, SearchResults
+from .schemas import (
+    AttributeDefinition,
+    ExtractionSchemaCreate,
+    ExtractionSchemaListItem,
+    ExtractionSchemaResponse,
+    TypeDefinition,
+)
 
 __all__ = [
     'SearchQuery',
@@ -61,4 +68,10 @@ __all__ = [
     'CommitMemoryRequest',
     'NodeConfirm',
     'EdgeConfirm',
+    # Schema DTOs
+    'AttributeDefinition',
+    'TypeDefinition',
+    'ExtractionSchemaCreate',
+    'ExtractionSchemaResponse',
+    'ExtractionSchemaListItem',
 ]
