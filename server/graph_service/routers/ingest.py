@@ -22,9 +22,29 @@ from graph_service.dto import (
 from graph_service.zep_graphiti import ZepGraphitiDep
 
 
+async def _resolve_schema_params(schema_id: int | None):
+    """Resolve a schema_id into Graphiti extraction parameters.
+
+    Returns (entity_types, edge_types, custom_extraction_instructions).
+    """
+    if schema_id is None:
+        return None, None, None
+
+    from graph_service.config import get_settings
+    from graph_service.models import build_extraction_params, get_schema
+
+    settings = get_settings()
+    schema = await get_schema(settings.postgres_age_dsn, schema_id)
+    if not schema:
+        return None, None, None
+
+    return build_extraction_params(schema)
+
+
 @dataclass
 class JobInfo:
     """Metadata for a queued or in-progress job."""
+
     name: str
     group_id: str
     status: str = 'pending'  # 'pending' | 'processing' | 'completed' | 'failed'
@@ -53,7 +73,9 @@ class AsyncWorker:
                 'group_id': self._current.group_id,
                 'status': self._current.status,
                 'submitted_at': self._current.submitted_at,
-            } if self._current else None,
+            }
+            if self._current
+            else None,
             'queue_size': self.queue.qsize(),
             'pending': [
                 {
@@ -69,7 +91,11 @@ class AsyncWorker:
     async def worker(self):
         while True:
             try:
-                print(f'Got a job: (size of remaining queue: {self.queue.qsize()})', flush=True, file=sys.stderr)
+                print(
+                    f'Got a job: (size of remaining queue: {self.queue.qsize()})',
+                    flush=True,
+                    file=sys.stderr,
+                )
                 job_fn, job_info = await self.queue.get()
                 job_info.status = 'processing'
                 self._current = job_info
@@ -124,8 +150,9 @@ async def add_messages(
     group_id = request.group_id
 
     async def add_messages_task(m: Message):
-        from graph_service.zep_graphiti import _build_client
         from graph_service.config import get_settings
+        from graph_service.zep_graphiti import _build_client
+
         settings = get_settings()
 
         task_graphiti = _build_client(settings)
@@ -159,13 +186,17 @@ async def add_episode(
     """Submit raw content for extraction without chat-style role prefix."""
 
     async def episode_task():
-        from graph_service.zep_graphiti import _build_client
         from graph_service.config import get_settings
+        from graph_service.zep_graphiti import _build_client
 
         settings = get_settings()
         task_graphiti = _build_client(settings)
         try:
             print(f'  -> Calling add_episode for: {request.name}', flush=True, file=sys.stderr)
+            entity_types, edge_types, custom_instructions = await _resolve_schema_params(
+                request.schema_id
+            )
+
             await task_graphiti.add_episode(
                 name=request.name,
                 episode_body=request.content,
@@ -173,8 +204,13 @@ async def add_episode(
                 source=EpisodeType.text,
                 source_description=request.source_description,
                 group_id=request.group_id,
+                entity_types=entity_types,
+                edge_types=edge_types,
+                custom_extraction_instructions=custom_instructions,
             )
-            print(f'  \u2713 add_episode completed for: {request.name}', flush=True, file=sys.stderr)
+            print(
+                f'  \u2713 add_episode completed for: {request.name}', flush=True, file=sys.stderr
+            )
         finally:
             if hasattr(task_graphiti, 'close'):
                 await task_graphiti.close()
@@ -240,6 +276,7 @@ async def clear(
 @dataclass
 class PreviewTask:
     """In-memory record for an async preview task."""
+
     task_id: str
     status: str = 'pending'
     stage: str | None = None
@@ -267,10 +304,7 @@ class PreviewStore:
 
     def _cleanup_expired(self):
         cutoff = datetime.now(timezone.utc).timestamp() - self._ttl
-        expired = [
-            tid for tid, t in self._tasks.items()
-            if t.created_at.timestamp() < cutoff
-        ]
+        expired = [tid for tid, t in self._tasks.items() if t.created_at.timestamp() < cutoff]
         for tid in expired:
             del self._tasks[tid]
 
@@ -285,14 +319,16 @@ def _serialize_preview_result(result, uuid_map: dict[str, str]) -> dict:
     for node in result.nodes:
         # A node is 'new' if its UUID was not remapped to a different existing UUID
         is_new = not any(v == node.uuid and k != node.uuid for k, v in uuid_map.items())
-        nodes.append({
-            'uuid': node.uuid,
-            'name': node.name,
-            'labels': node.labels or [],
-            'summary': node.summary or '',
-            'group_id': node.group_id,
-            'is_new': is_new,
-        })
+        nodes.append(
+            {
+                'uuid': node.uuid,
+                'name': node.name,
+                'labels': node.labels or [],
+                'summary': node.summary or '',
+                'group_id': node.group_id,
+                'is_new': is_new,
+            }
+        )
 
     def _edge_to_dict(edge, node_name_map: dict[str, str]) -> dict:
         return {
@@ -317,7 +353,9 @@ def _serialize_preview_result(result, uuid_map: dict[str, str]) -> dict:
             'name': episode.name,
             'content': episode.content,
             'group_id': episode.group_id,
-            'source': episode.source.value if hasattr(episode.source, 'value') else str(episode.source),
+            'source': episode.source.value
+            if hasattr(episode.source, 'value')
+            else str(episode.source),
             'source_description': episode.source_description,
         },
         'nodes': nodes,
@@ -333,8 +371,8 @@ async def preview_memory(request: PreviewMemoryRequest):
     task = preview_store.create(task_id)
 
     async def preview_task():
-        from graph_service.zep_graphiti import _build_client
         from graph_service.config import get_settings
+        from graph_service.zep_graphiti import _build_client
 
         settings = get_settings()
         task_graphiti = _build_client(settings)
@@ -346,6 +384,10 @@ async def preview_memory(request: PreviewMemoryRequest):
             except (KeyError, AttributeError):
                 source_type = EpisodeType.text
 
+            entity_types, edge_types, custom_instructions = await _resolve_schema_params(
+                request.schema_id
+            )
+
             result = await task_graphiti.preview_episode(
                 name=request.name or f'Preview: {request.content[:50]}',
                 episode_body=request.content,
@@ -353,6 +395,9 @@ async def preview_memory(request: PreviewMemoryRequest):
                 reference_time=datetime.now(timezone.utc),
                 source=source_type,
                 group_id=request.group_id,
+                entity_types=entity_types,
+                edge_types=edge_types,
+                custom_extraction_instructions=custom_instructions,
                 stage_callback=lambda s: setattr(task, 'stage', s),
             )
 

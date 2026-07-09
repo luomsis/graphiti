@@ -2,16 +2,18 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-
 # --- Preview DTOs ---
 
 
 class PreviewMemoryRequest(BaseModel):
     name: str = Field(default='', description='Name of the episode')
     content: str = Field(..., description='Text content to extract entities/edges from')
-    group_id: str = Field(default='default', description='Group ID for the knowledge graph partition')
+    group_id: str = Field(
+        default='default', description='Group ID for the knowledge graph partition'
+    )
     source: str = Field(default='text', description='Source type: text, json, or message')
     source_description: str = Field(default='', description='Description of the content source')
+    schema_id: int | None = Field(default=None, description='Extraction schema ID')
 
 
 class EpisodePreview(BaseModel):
@@ -83,5 +85,9 @@ class CommitMemoryRequest(BaseModel):
     episode: EpisodePreview
     nodes: list[NodeConfirm]
     edges: list[EdgeConfirm]
-    group_id: str = Field(default='default', description='Group ID for the knowledge graph partition')
-    update_communities: bool = Field(default=False, description='Whether to update community structure')
+    group_id: str = Field(
+        default='default', description='Group ID for the knowledge graph partition'
+    )
+    update_communities: bool = Field(
+        default=False, description='Whether to update community structure'
+    )

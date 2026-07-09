@@ -129,11 +129,39 @@ class BaseOpenAIClient(LLMClient):
             output_tokens = getattr(response.usage, 'output_tokens', 0) or 0
 
         if response_object:
-            return json.loads(response_object), input_tokens, output_tokens
+            return self._safe_json_loads(response_object), input_tokens, output_tokens
         elif hasattr(response, 'refusal') and response.refusal:
             raise RefusalError(response.refusal)
         else:
             raise Exception(f'Invalid response from LLM: {response}')
+
+    @staticmethod
+    def _safe_json_loads(text: str) -> dict[str, Any]:
+        """Parse JSON with fallback to json_repair for malformed LLM output.
+
+        Reasoning models may produce JSON with unescaped quotes, trailing
+        commas, or truncated content. json_repair salvages these responses
+        instead of failing the entire pipeline.
+        """
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as json_err:
+            logger.warning(
+                f'JSON parse failed ({json_err}), attempting json_repair fallback'
+            )
+            try:
+                from json_repair import repair_json
+
+                repaired = repair_json(text, return_objects=True)
+            except ImportError:
+                logger.error(
+                    'json_repair not installed; cannot salvage malformed JSON'
+                )
+                raise
+            if not isinstance(repaired, dict):
+                raise json_err
+            logger.info('json_repair successfully salvaged LLM response')
+            return repaired
 
     def _handle_json_response(self, response: Any) -> tuple[dict[str, Any], int, int]:
         """Handle JSON response parsing.
@@ -150,7 +178,7 @@ class BaseOpenAIClient(LLMClient):
             input_tokens = getattr(response.usage, 'prompt_tokens', 0) or 0
             output_tokens = getattr(response.usage, 'completion_tokens', 0) or 0
 
-        return json.loads(result), input_tokens, output_tokens
+        return self._safe_json_loads(result), input_tokens, output_tokens
 
     async def _generate_response(
         self,

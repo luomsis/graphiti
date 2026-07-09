@@ -76,6 +76,23 @@ interface GroupOption {
   count: number;
 }
 
+interface SchemaOption {
+  id: number;
+  name: string;
+  description: string;
+  entity_type_count: number;
+  edge_type_count: number;
+}
+
+interface SchemaDetail {
+  id: number;
+  name: string;
+  description: string;
+  entity_types: { name: string; description: string; attributes?: { name: string; type: string; description?: string }[] }[];
+  edge_types: { name: string; description: string; attributes?: { name: string; type: string; description?: string }[] }[];
+  custom_instructions: string;
+}
+
 // ---------------------------------------------------------------------------
 // Stage definitions
 // ---------------------------------------------------------------------------
@@ -129,6 +146,11 @@ export default function IngestPage() {
   const [fileName, setFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Schema selection
+  const [schemas, setSchemas] = useState<SchemaOption[]>([]);
+  const [schemaId, setSchemaId] = useState<number | null>(null);
+  const [schemaDetail, setSchemaDetail] = useState<SchemaDetail | null>(null);
+
   // Processing state
   const [stage, setStage] = useState('');
   const [pollError, setPollError] = useState<string | null>(null);
@@ -166,7 +188,34 @@ export default function IngestPage() {
         if (data.length > 0) setGroupId(data[0].id || data[0].name);
       })
       .catch(() => {});
+
+    // Fetch available schemas
+    fetch('/api/schemas', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: SchemaOption[]) => setSchemas(data))
+      .catch(() => {});
   }, []);
+
+  // Fetch schema detail when selection changes
+  useEffect(() => {
+    if (schemaId === null) {
+      return;
+    }
+    let cancelled = false;
+    // Reset detail synchronously via fetch of new data
+    fetch(`/api/schemas/${schemaId}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: SchemaDetail | null) => {
+        if (!cancelled) setSchemaDetail(data);
+      })
+      .catch(() => {
+        if (!cancelled) setSchemaDetail(null);
+      });
+    return () => {
+      cancelled = true;
+      setSchemaDetail(null);
+    };
+  }, [schemaId]);
 
   // -----------------------------------------------------------------------
   // Stage progress helper
@@ -225,6 +274,7 @@ export default function IngestPage() {
           group_id: effectiveGroupId,
           source,
           source_description: 'Knowledge page ingest',
+          schema_id: schemaId,
         }),
       });
       if (!res.ok) {
@@ -258,7 +308,7 @@ export default function IngestPage() {
       setPollError(err instanceof Error ? err.message : 'Unknown error');
       setStep('input');
     }
-  }, [content, name, effectiveGroupId, source, fileName]);
+  }, [content, name, effectiveGroupId, source, fileName, schemaId]);
 
   // -----------------------------------------------------------------------
   // Direct generate handler
@@ -278,6 +328,7 @@ export default function IngestPage() {
           content,
           group_id: effectiveGroupId,
           source,
+          schema_id: schemaId,
         }),
       });
       if (!res.ok) {
@@ -289,7 +340,7 @@ export default function IngestPage() {
       setPollError(err instanceof Error ? err.message : 'Submit failed');
       setStep('input');
     }
-  }, [content, name, effectiveGroupId, source, fileName, router]);
+  }, [content, name, effectiveGroupId, source, fileName, schemaId, router]);
 
   // -----------------------------------------------------------------------
   // Commit handler
@@ -677,6 +728,37 @@ export default function IngestPage() {
               ? '预览提取结果，手动确认后写入图谱'
               : '自动提取并写入，无需审查'}
           </p>
+        </div>
+
+        {/* Schema selector */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Extraction Schema</Label>
+          <select
+            value={schemaId ?? ''}
+            onChange={(e) => setSchemaId(e.target.value ? Number(e.target.value) : null)}
+            className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+          >
+            <option value="">不使用 Schema（默认）</option>
+            {schemas.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} — {s.entity_type_count} 实体 / {s.edge_type_count} 关系
+              </option>
+            ))}
+          </select>
+          {schemaId !== null && schemaDetail && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {schemaDetail.entity_types.map((et) => (
+                <Badge key={`e-${et.name}`} variant="secondary" className="text-[10px]">
+                  {et.name}
+                </Badge>
+              ))}
+              {schemaDetail.edge_types.map((et) => (
+                <Badge key={`r-${et.name}`} variant="outline" className="text-[10px]">
+                  {et.name}
+                </Badge>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Input mode toggle */}

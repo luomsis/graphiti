@@ -221,7 +221,9 @@ class Graphiti:
             # Default to PostgresAgeDriver if no graph_driver is provided
             from graphiti_core.driver.postgres_age import PostgresAgeDriver
 
-            dsn = os.getenv('POSTGRES_AGE_DSN', 'postgresql://graphiti:graphiti@localhost:55432/graphiti')
+            dsn = os.getenv(
+                'POSTGRES_AGE_DSN', 'postgresql://graphiti:graphiti@localhost:55432/graphiti'
+            )
             graph_name = os.getenv('POSTGRES_AGE_GRAPH_NAME', 'graphiti')
             embedding_dimension = int(os.getenv('POSTGRES_AGE_EMBEDDING_DIMENSION', '384'))
             self.driver = PostgresAgeDriver(
@@ -246,12 +248,8 @@ class Graphiti:
                     SentenceTransformerEmbedderConfig,
                 )
 
-                embedding_dim = int(
-                    os.getenv('POSTGRES_AGE_EMBEDDING_DIMENSION', '384')
-                )
-                config = SentenceTransformerEmbedderConfig(
-                    embedding_dim=embedding_dim
-                )
+                embedding_dim = int(os.getenv('POSTGRES_AGE_EMBEDDING_DIMENSION', '384'))
+                config = SentenceTransformerEmbedderConfig(embedding_dim=embedding_dim)
                 self.embedder = SentenceTransformerEmbedder(config=config)
             elif embedder_provider == 'bge_zh':
                 from graphiti_core.embedder.bge_zh import (
@@ -259,9 +257,7 @@ class Graphiti:
                     BGELargeZHEmbedderConfig,
                 )
 
-                embedding_dim = int(
-                    os.getenv('POSTGRES_AGE_EMBEDDING_DIMENSION', '1024')
-                )
+                embedding_dim = int(os.getenv('POSTGRES_AGE_EMBEDDING_DIMENSION', '1024'))
                 config = BGELargeZHEmbedderConfig(embedding_dim=embedding_dim)
                 self.embedder = BGELargeZHEmbedder(config=config)
             else:
@@ -1285,6 +1281,7 @@ class Graphiti:
         excluded_entity_types: list[str] | None = None,
         previous_episode_uuids: list[str] | None = None,
         custom_extraction_instructions: str | None = None,
+        edge_types: dict[str, type[BaseModel]] | None = None,
         stage_callback: Callable[[str], None] | None = None,
     ) -> PreviewEpisodeResults:
         """Run extraction and resolution without writing to the database.
@@ -1337,7 +1334,11 @@ class Graphiti:
                     valid_at=reference_time,
                 )
 
-                edge_type_map_default: dict[tuple[str, str], list[str]] = {('Entity', 'Entity'): []}
+                edge_type_map_default = (
+                    {('Entity', 'Entity'): list(edge_types.keys())}
+                    if edge_types is not None
+                    else {('Entity', 'Entity'): []}
+                )
 
                 extracted_nodes, node_episode_index_map = await extract_nodes(
                     self.clients,
@@ -1370,7 +1371,7 @@ class Graphiti:
                     previous_episodes,
                     edge_type_map_default,
                     group_id,
-                    None,
+                    edge_types,
                     nodes,
                     uuid_map,
                     custom_extraction_instructions,
@@ -1445,9 +1446,7 @@ class Graphiti:
                 await create_entity_edge_embeddings(self.embedder, entity_edges)
 
                 # Build episodic edges
-                episodic_edges = build_episodic_edges(
-                    nodes, [episode.uuid], now
-                )
+                episodic_edges = build_episodic_edges(nodes, [episode.uuid], now)
 
                 # Set entity edge references on episode
                 episode.entity_edges = [edge.uuid for edge in entity_edges]

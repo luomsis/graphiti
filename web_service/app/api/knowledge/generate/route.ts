@@ -2,7 +2,7 @@ import { fetchFromBackend } from '@/lib/api-client';
 
 export async function POST(request: Request) {
   try {
-    const { name, content, group_id, source } = await request.json();
+    const { name, content, group_id, source, schema_id } = await request.json();
 
     const result = await fetchFromBackend<{ message: string; success: boolean }>({
       path: '/add-episode',
@@ -12,6 +12,7 @@ export async function POST(request: Request) {
         content,
         group_id,
         source_description: source || 'text',
+        schema_id: schema_id ?? null,
       }),
     });
     return Response.json(result);

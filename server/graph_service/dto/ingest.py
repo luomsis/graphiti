@@ -13,6 +13,7 @@ class AddEpisodeRequest(BaseModel):
     content: str = Field(..., description='The raw content of the episode (no role prefix)')
     group_id: str = Field(..., description='The group id')
     source_description: str = Field(default='', description='Description of the source')
+    schema_id: int | None = Field(default=None, description='Extraction schema ID')
 
 
 class AddEntityNodeRequest(BaseModel):

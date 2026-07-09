@@ -204,7 +204,29 @@ class OpenAIGenericClient(LLMClient):
                     'Consider increasing max_tokens in config.'
                 )
 
-            parsed = json.loads(result)
+            try:
+                parsed = json.loads(result)
+            except json.JSONDecodeError as json_err:
+                # Reasoning models (deepseek-v4-flash, MiniMax-M2.7, Qwen3, etc.)
+                # may produce JSON with unescaped quotes, trailing commas, or
+                # truncated content.  Fall back to json_repair to salvage the
+                # response instead of failing the entire extraction pipeline.
+                logger.warning(
+                    f'JSON parse failed ({json_err}), attempting json_repair fallback'
+                )
+                try:
+                    from json_repair import repair_json
+
+                    parsed = repair_json(result, return_objects=True)
+                except ImportError:
+                    logger.error(
+                        'json_repair not installed; cannot salvage malformed JSON'
+                    )
+                    raise
+
+                if not isinstance(parsed, dict):
+                    raise json_err
+                logger.info('json_repair successfully salvaged LLM response')
 
             # Detect empty JSON object — model failed to produce valid output
             if isinstance(parsed, dict) and len(parsed) == 0:
