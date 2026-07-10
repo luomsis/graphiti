@@ -91,7 +91,6 @@ export interface Document {
   name: string;
   type: string; // PDF, DOCX, TXT, URL...
   status: DocumentStatus;
-  entityCount: number;
   createdAt: string;
   group_id: string;
 }

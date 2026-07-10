@@ -743,7 +743,7 @@ export default function IngestPage() {
                 {groups.length === 0 && <option value="default">default</option>}
                 {groups.map((g) => (
                   <option key={g.id || g.name} value={g.id || g.name}>
-                    {g.id || g.name} ({g.count})
+                    {g.id || g.name}
                   </option>
                 ))}
               </select>

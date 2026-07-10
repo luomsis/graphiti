@@ -42,7 +42,6 @@ export async function GET(request: Request) {
           content: string;
           source_description: string;
           created_at: string;
-          entity_edges?: string[];
         }> = await fetchFromBackend(
           `/episodes/${encodeURIComponent(gid)}?last_n=100`,
         );
@@ -53,7 +52,6 @@ export async function GET(request: Request) {
             name: ep.name || ep.source_description || 'Untitled',
             type: inferDocType(ep.name || ep.source_description || ''),
             status: 'completed' as const,
-            entityCount: Array.isArray(ep.entity_edges) ? ep.entity_edges.length : 0,
             createdAt: ep.created_at || new Date().toISOString(),
             group_id: gid,
           });
@@ -81,7 +79,6 @@ export async function GET(request: Request) {
           name: job.name,
           type: inferDocType(job.name),
           status: job.status === 'processing' ? 'processing' : 'pending',
-          entityCount: 0,
           createdAt: job.submitted_at,
           group_id: job.group_id,
         });

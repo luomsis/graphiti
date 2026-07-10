@@ -186,7 +186,7 @@ export default function KnowledgePage() {
             <option value="all">All Groups</option>
             {groups.map((g) => (
               <option key={g.id || g.name} value={g.id || g.name}>
-                {g.id || g.name} ({g.count})
+                {g.id || g.name}
               </option>
             ))}
           </select>

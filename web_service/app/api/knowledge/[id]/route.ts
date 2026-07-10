@@ -106,7 +106,6 @@ export async function GET(
       name: targetEpisode.name || targetEpisode.source_description || 'Untitled',
       type: inferDocType(targetEpisode.name || targetEpisode.source_description || ''),
       status: 'completed' as const,
-      entityCount: targetEpisode.entity_edges?.length || 0,
       createdAt: targetEpisode.created_at || new Date().toISOString(),
       group_id: targetEpisode.group_id,
       content: targetEpisode.content || '',

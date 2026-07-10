@@ -85,7 +85,7 @@ export default function GraphPageClient() {
         >
           {groups.map((group) => (
             <option key={group.id} value={group.id}>
-              {group.name} ({group.count})
+              {group.name}
             </option>
           ))}
         </select>

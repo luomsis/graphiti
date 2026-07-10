@@ -36,14 +36,13 @@ export function DocumentTable({ documents, onDelete }: DocumentTableProps) {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">类型</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Group ID</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">关系数</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">操作</th>
             </tr>
           </thead>
           <tbody>
             {documents.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
                   暂无数据
                 </td>
               </tr>
@@ -63,9 +62,6 @@ export function DocumentTable({ documents, onDelete }: DocumentTableProps) {
                       <Badge variant={status.variant}>
                         {status.emoji} {status.label}
                       </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {doc.entityCount > 0 ? doc.entityCount : '-'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">

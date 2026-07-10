@@ -31,7 +31,6 @@ interface DocDetail {
   name: string;
   type: string;
   status: string;
-  entityCount: number;
   createdAt: string;
   group_id: string;
   content: string;
